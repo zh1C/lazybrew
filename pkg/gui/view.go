@@ -60,11 +60,19 @@ func (a *App) renderTitleBar() string {
 		Bold(true).
 		Render(" 🍺 lazybrew")
 
-	loadingIndicator := ""
-	if a.loading {
-		loadingIndicator = lipgloss.NewStyle().
+	// Stage indicator
+	stageIndicator := ""
+	switch a.stage {
+	case StageLoading:
+		stageIndicator = lipgloss.NewStyle().
 			Foreground(warningColor).
-			Render(" ⏳ " + a.loadingMsg)
+			Render(" " + a.spinnerChar() + " Loading...")
+	case StageEnriching:
+		stageIndicator = lipgloss.NewStyle().
+			Foreground(warningColor).
+			Render(" " + a.spinnerChar() + " Enriching data...")
+	case StageComplete:
+		// no indicator
 	}
 
 	errIndicator := ""
@@ -78,7 +86,7 @@ func (a *App) renderTitleBar() string {
 		Foreground(dimColor).
 		Render("? help  q quit ")
 
-	left := title + loadingIndicator + errIndicator
+	left := title + stageIndicator + errIndicator
 	spacer := strings.Repeat(" ", max(0, a.width-lipgloss.Width(left)-lipgloss.Width(right)))
 
 	return lipgloss.NewStyle().
@@ -90,19 +98,16 @@ func (a *App) renderTitleBar() string {
 // --- Side Panel ---
 
 func (a *App) renderSidePanel(width, height int) string {
-	innerWidth := width - 2 // border takes 2 chars
+	innerWidth := width - 2
 
-	// Calculate heights for each panel section
 	statusH := 5
 	remainH := height - statusH
 	if remainH < 4 {
 		remainH = 4
 	}
 
-	// Distribute remaining height among panels
 	panelHeights := a.calculatePanelHeights(remainH)
 
-	// Render each panel section
 	var sections []string
 	sections = append(sections, a.renderStatusPanel(innerWidth, statusH))
 	sections = append(sections, a.renderFormulaePanel(innerWidth, panelHeights[0]))
@@ -112,7 +117,6 @@ func (a *App) renderSidePanel(width, height int) string {
 
 	combined := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
-	// Fit to exact height
 	lines := strings.Split(combined, "\n")
 	if len(lines) > height {
 		lines = lines[:height]
@@ -125,10 +129,7 @@ func (a *App) renderSidePanel(width, height int) string {
 }
 
 func (a *App) calculatePanelHeights(total int) [4]int {
-	// Formulae, Casks, Taps, Services
 	heights := [4]int{}
-
-	// Active panel gets more space
 	switch a.activePanel {
 	case FormulaePanel:
 		heights = distributePanelSpace(total, 0)
@@ -141,15 +142,12 @@ func (a *App) calculatePanelHeights(total int) [4]int {
 	default:
 		heights = distributePanelSpace(total, 0)
 	}
-
 	return heights
 }
 
 func distributePanelSpace(total int, activeIdx int) [4]int {
 	heights := [4]int{}
-	minH := 3 // minimum height per panel (title + 1 item + border)
-
-	// Give active panel more space
+	minH := 3
 	remaining := total - minH*4
 	if remaining < 0 {
 		remaining = 0
@@ -158,14 +156,10 @@ func distributePanelSpace(total int, activeIdx int) [4]int {
 			minH = 2
 		}
 	}
-
 	for i := range heights {
 		heights[i] = minH
 	}
-
-	// Distribute remaining to active panel
 	heights[activeIdx] += remaining
-
 	return heights
 }
 
@@ -176,12 +170,17 @@ func (a *App) renderStatusPanel(width, height int) string {
 	title := a.panelTitle(StatusPanel, isActive)
 
 	outdatedCount := len(a.outdatedFormulae) + len(a.outdatedCasks)
+	outdatedStr := a.formatOutdatedCount(outdatedCount)
+	if a.stage != StageComplete && outdatedCount == 0 {
+		outdatedStr = dimItemStyle.Render(a.spinnerChar())
+	}
+
 	content := fmt.Sprintf(
 		" Formulae: %d  Casks: %d\n Outdated: %s  Taps: %d",
-		len(a.formulae),
-		len(a.casks),
-		a.formatOutdatedCount(outdatedCount),
-		len(a.taps),
+		len(a.formulaeNames),
+		len(a.caskNames),
+		outdatedStr,
+		len(a.tapNames),
 	)
 
 	return a.wrapPanel(title, content, width, height, isActive)
@@ -191,8 +190,12 @@ func (a *App) renderFormulaePanel(width, height int) string {
 	isActive := a.activePanel == FormulaePanel
 	title := a.panelTitleWithTabs(FormulaePanel, isActive, []string{"Installed", "Outdated", "Leaves"}, int(a.formulaeTab))
 
-	items := a.getFilteredFormulae()
-	content := a.renderFormulaList(items, a.formulaeCursor, width-2, height-2)
+	items := a.getFilteredFormulaeNames()
+	content := a.renderNameList(items, a.formulaeCursor, a.formulaeVersions, a.outdatedFormulae, width-2, height-2)
+
+	if a.formulaeLoading {
+		content = dimItemStyle.Render("  " + a.spinnerChar() + " Loading formulae...")
+	}
 
 	return a.wrapPanel(title, content, width, height, isActive)
 }
@@ -201,8 +204,12 @@ func (a *App) renderCasksPanel(width, height int) string {
 	isActive := a.activePanel == CasksPanel
 	title := a.panelTitleWithTabs(CasksPanel, isActive, []string{"Installed", "Outdated"}, int(a.caskTab))
 
-	items := a.getFilteredCasks()
-	content := a.renderCaskList(items, a.casksCursor, width-2, height-2)
+	items := a.getFilteredCaskNames()
+	content := a.renderNameList(items, a.casksCursor, a.caskVersions, a.outdatedCasks, width-2, height-2)
+
+	if a.casksLoading {
+		content = dimItemStyle.Render("  " + a.spinnerChar() + " Loading casks...")
+	}
 
 	return a.wrapPanel(title, content, width, height, isActive)
 }
@@ -211,7 +218,12 @@ func (a *App) renderTapsPanel(width, height int) string {
 	isActive := a.activePanel == TapsPanel
 	title := a.panelTitle(TapsPanel, isActive)
 
-	content := a.renderTapList(a.taps, a.tapsCursor, width-2, height-2)
+	items := a.getFilteredTapNames()
+	content := a.renderTapNameList(items, a.tapsCursor, width-2, height-2)
+
+	if a.tapsLoading {
+		content = dimItemStyle.Render("  " + a.spinnerChar() + " Loading taps...")
+	}
 
 	return a.wrapPanel(title, content, width, height, isActive)
 }
@@ -223,12 +235,18 @@ func (a *App) renderServicesPanel(width, height int) string {
 	items := a.getFilteredServices()
 	content := a.renderServiceList(items, a.servicesCursor, width-2, height-2)
 
+	if a.servicesLoading {
+		content = dimItemStyle.Render("  " + a.spinnerChar() + " Loading services...")
+	}
+
 	return a.wrapPanel(title, content, width, height, isActive)
 }
 
 // --- List Renderers ---
 
-func (a *App) renderFormulaList(items []models.Formula, cursor, width, maxLines int) string {
+// renderNameList renders a list of package names with optional version and outdated markers.
+// This is the unified renderer for formulae and casks (working from name strings, not objects).
+func (a *App) renderNameList(items []string, cursor int, versions map[string]string, outdated map[string]bool, width, maxLines int) string {
 	if len(items) == 0 {
 		return dimItemStyle.Render("  (empty)")
 	}
@@ -237,9 +255,8 @@ func (a *App) renderFormulaList(items []models.Formula, cursor, width, maxLines 
 	start, end := a.visibleRange(cursor, len(items), maxLines)
 
 	for i := start; i < end; i++ {
-		f := items[i]
-		name := f.Name
-		version := f.CurrentVersion()
+		name := items[i]
+		version := versions[name]
 
 		// Truncate name if needed
 		maxNameLen := width - len(version) - 6
@@ -250,12 +267,10 @@ func (a *App) renderFormulaList(items []models.Formula, cursor, width, maxLines 
 			name = name[:maxNameLen-1] + "…"
 		}
 
-		// Build markers
+		// Outdated marker
 		marker := " "
-		if f.Outdated {
+		if outdated[items[i]] {
 			marker = outdatedStyle.Render("▲")
-		} else if f.Pinned {
-			marker = pinnedStyle.Render("📌")
 		}
 
 		// Pad version to right-align
@@ -264,7 +279,9 @@ func (a *App) renderFormulaList(items []models.Formula, cursor, width, maxLines 
 			padding = 1
 		}
 
-		line := fmt.Sprintf(" %s %s%s%s", marker, name, strings.Repeat(" ", padding), lipgloss.NewStyle().Foreground(dimColor).Render(version))
+		versionDisplay := lipgloss.NewStyle().Foreground(dimColor).Render(version)
+
+		line := fmt.Sprintf(" %s %s%s%s", marker, name, strings.Repeat(" ", padding), versionDisplay)
 
 		if i == cursor {
 			line = selectedItemStyle.Width(width).Render(fmt.Sprintf(" %s %s%s%s", marker, name, strings.Repeat(" ", padding), version))
@@ -275,7 +292,7 @@ func (a *App) renderFormulaList(items []models.Formula, cursor, width, maxLines 
 	return strings.Join(lines, "\n")
 }
 
-func (a *App) renderCaskList(items []models.Cask, cursor, width, maxLines int) string {
+func (a *App) renderTapNameList(items []string, cursor, width, maxLines int) string {
 	if len(items) == 0 {
 		return dimItemStyle.Render("  (empty)")
 	}
@@ -284,60 +301,25 @@ func (a *App) renderCaskList(items []models.Cask, cursor, width, maxLines int) s
 	start, end := a.visibleRange(cursor, len(items), maxLines)
 
 	for i := start; i < end; i++ {
-		c := items[i]
-		name := c.Name
-		version := c.Version
-
-		maxNameLen := width - len(version) - 6
-		if maxNameLen < 8 {
-			maxNameLen = 8
-		}
-		if len(name) > maxNameLen {
-			name = name[:maxNameLen-1] + "…"
+		name := items[i]
+		// Try to find detail info for this tap
+		info := ""
+		for _, t := range a.taps {
+			if t.Name == name {
+				info = fmt.Sprintf("F:%d C:%d", t.FormulaCount, t.CaskCount)
+				break
+			}
 		}
 
-		marker := " "
-		if c.Outdated {
-			marker = outdatedStyle.Render("▲")
-		}
-
-		padding := width - len(name) - len(version) - 4
+		padding := width - len(name) - len(info) - 3
 		if padding < 1 {
 			padding = 1
 		}
 
-		line := fmt.Sprintf(" %s %s%s%s", marker, name, strings.Repeat(" ", padding), lipgloss.NewStyle().Foreground(dimColor).Render(version))
+		line := fmt.Sprintf("  %s%s%s", name, strings.Repeat(" ", padding), lipgloss.NewStyle().Foreground(dimColor).Render(info))
 
 		if i == cursor {
-			line = selectedItemStyle.Width(width).Render(fmt.Sprintf(" %s %s%s%s", marker, name, strings.Repeat(" ", padding), version))
-		}
-		lines = append(lines, line)
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-func (a *App) renderTapList(items []models.Tap, cursor, width, maxLines int) string {
-	if len(items) == 0 {
-		return dimItemStyle.Render("  (empty)")
-	}
-
-	var lines []string
-	start, end := a.visibleRange(cursor, len(items), maxLines)
-
-	for i := start; i < end; i++ {
-		t := items[i]
-		info := fmt.Sprintf("F:%d C:%d", t.FormulaCount, t.CaskCount)
-
-		padding := width - len(t.Name) - len(info) - 3
-		if padding < 1 {
-			padding = 1
-		}
-
-		line := fmt.Sprintf("  %s%s%s", t.Name, strings.Repeat(" ", padding), lipgloss.NewStyle().Foreground(dimColor).Render(info))
-
-		if i == cursor {
-			line = selectedItemStyle.Width(width).Render(fmt.Sprintf("  %s%s%s", t.Name, strings.Repeat(" ", padding), info))
+			line = selectedItemStyle.Width(width).Render(fmt.Sprintf("  %s%s%s", name, strings.Repeat(" ", padding), info))
 		}
 		lines = append(lines, line)
 	}
@@ -395,12 +377,9 @@ func (a *App) renderMainArea(width, height int) string {
 		logHeight = height - detailHeight
 	}
 
-	innerWidth := width - 2 // border
+	innerWidth := width - 2
 
-	// Detail panel
 	detailPanel := a.renderDetailPanel(innerWidth, detailHeight)
-
-	// Command log panel
 	logPanel := a.renderCommandLog(innerWidth, logHeight)
 
 	return lipgloss.JoinVertical(lipgloss.Left, detailPanel, logPanel)
@@ -412,8 +391,10 @@ func (a *App) renderDetailPanel(width, height int) string {
 
 	content := a.detailInfo
 	if content == "" {
-		if a.loading {
-			content = dimItemStyle.Render("  Loading...")
+		if a.detailLoading {
+			content = dimItemStyle.Render("  " + a.spinnerChar() + " Loading details...")
+		} else if a.stage == StageLoading {
+			content = dimItemStyle.Render("  " + a.spinnerChar() + " Loading...")
 		} else {
 			content = dimItemStyle.Render("  Select an item to view details")
 		}
@@ -425,7 +406,6 @@ func (a *App) renderDetailPanel(width, height int) string {
 		lines = lines[a.detailScroll:]
 	}
 
-	// Truncate to fit
 	maxLines := height - 2
 	if maxLines < 1 {
 		maxLines = 1
@@ -509,7 +489,6 @@ func (a *App) renderBottomBar() string {
 		}
 	}
 
-	// Add global keys
 	keys = append(keys,
 		keyStyle.Render("^u") + keyDescStyle.Render("pdate"),
 		keyStyle.Render("^l") + keyDescStyle.Render("cleanup"),
@@ -692,16 +671,13 @@ func (a *App) placeOverlay(base, overlay string) string {
 		}
 
 		baseLine := baseLines[y]
-		// Simple overlay: replace characters in the base line
 		baseRunes := []rune(baseLine)
 		overRunes := []rune(oLine)
 
-		// Ensure base line is wide enough
 		for len(baseRunes) < startX+len(overRunes) {
 			baseRunes = append(baseRunes, ' ')
 		}
 
-		// Overlay
 		result := string(baseRunes[:startX]) + string(overRunes)
 		if startX+len(overRunes) < len(baseRunes) {
 			result += string(baseRunes[startX+len(overRunes):])
@@ -755,9 +731,8 @@ func (a *App) wrapPanel(title, content string, width, height int, active bool) s
 		style = activePanelStyle
 	}
 
-	// Calculate inner dimensions
-	innerW := width - 2 // borders
-	innerH := height - 2 // borders
+	innerW := width - 2
+	innerH := height - 2
 
 	if innerW < 1 {
 		innerW = 1
@@ -766,16 +741,13 @@ func (a *App) wrapPanel(title, content string, width, height int, active bool) s
 		innerH = 1
 	}
 
-	// Build content with title
 	titleLine := title
 	contentLines := strings.Split(content, "\n")
 
-	// Truncate content to fit
 	if len(contentLines) > innerH-1 {
 		contentLines = contentLines[:innerH-1]
 	}
 
-	// Pad content lines to fill height
 	for len(contentLines) < innerH-1 {
 		contentLines = append(contentLines, "")
 	}

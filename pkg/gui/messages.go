@@ -4,39 +4,97 @@ import (
 	"github.com/zh1C/lazybrew/pkg/commands/models"
 )
 
-// --- Tea Messages ---
+// ============================================================
+// Stage 1 Messages — instant name lists (~0.03s each)
+// ============================================================
 
-// DataLoadedMsg is sent when initial data loading completes.
-type DataLoadedMsg struct {
-	Formulae []models.Formula
-	Casks    []models.Cask
-	Services []models.Service
-	Taps     []models.Tap
+// FormulaeNamesMsg arrives when formula names are loaded (Stage 1).
+type FormulaeNamesMsg struct {
+	Names []string
+	Err   error
+}
+
+// CaskNamesMsg arrives when cask names are loaded (Stage 1).
+type CaskNamesMsg struct {
+	Names []string
+	Err   error
+}
+
+// TapNamesMsg arrives when tap names are loaded (Stage 1).
+type TapNamesMsg struct {
+	Names []string
+	Err   error
+}
+
+// ============================================================
+// Stage 2 Messages — background enrichment (~1-2s each)
+// ============================================================
+
+// FormulaeVersionsMsg arrives when formula name→version map is loaded.
+type FormulaeVersionsMsg struct {
+	Versions map[string]string
 	Err      error
 }
 
-// FormulaInfoMsg is sent when formula detail info is loaded.
+// CaskVersionsMsg arrives when cask name→version map is loaded.
+type CaskVersionsMsg struct {
+	Versions map[string]string
+	Err      error
+}
+
+// OutdatedNamesMsg arrives when outdated package names are loaded.
+type OutdatedNamesMsg struct {
+	Formulae []string
+	Casks    []string
+	Err      error
+}
+
+// LeavesLoadedMsg arrives when leaf formula names are loaded.
+type LeavesLoadedMsg struct {
+	Leaves []string
+	Err    error
+}
+
+// ServicesLoadedMsg arrives when services list is loaded.
+type ServicesLoadedMsg struct {
+	Services []models.Service
+	Err      error
+}
+
+// TapsDetailMsg arrives when detailed tap info is loaded.
+type TapsDetailMsg struct {
+	Taps []models.Tap
+	Err  error
+}
+
+// ============================================================
+// On-demand detail messages (triggered by user selection)
+// ============================================================
+
+// FormulaInfoMsg arrives when a single formula's detail is loaded.
 type FormulaInfoMsg struct {
+	Name    string
 	Formula *models.Formula
 	Deps    string
 	Uses    []string
 	Err     error
 }
 
-// CaskInfoMsg is sent when cask detail info is loaded.
+// CaskInfoMsg arrives when a single cask's detail is loaded.
 type CaskInfoMsg struct {
+	Name string
 	Cask *models.Cask
 	Err  error
 }
 
-// CommandOutputMsg is sent when a brew command produces output.
-type CommandOutputMsg struct {
-	Line string
-}
+// ============================================================
+// Action messages
+// ============================================================
 
-// CommandDoneMsg is sent when a brew command completes.
+// CommandDoneMsg is sent when a brew action command completes.
 type CommandDoneMsg struct {
 	Command string
+	Output  string
 	Success bool
 	Err     error
 }
@@ -49,18 +107,8 @@ type SearchResultMsg struct {
 	Err      error
 }
 
-// RefreshMsg triggers a data refresh.
+// RefreshMsg triggers a full data refresh (Stage 1 + Stage 2).
 type RefreshMsg struct{}
 
-// OutdatedLoadedMsg is sent when outdated data is loaded.
-type OutdatedLoadedMsg struct {
-	Formulae []models.Formula
-	Casks    []models.Cask
-	Err      error
-}
-
-// LeavesLoadedMsg is sent when leaves data is loaded.
-type LeavesLoadedMsg struct {
-	Leaves []string
-	Err    error
-}
+// SpinnerTickMsg triggers spinner animation update.
+type SpinnerTickMsg struct{}

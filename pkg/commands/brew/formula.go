@@ -58,24 +58,40 @@ type jsonRuntimeDep struct {
 	Revision int    `json:"revision"`
 }
 
-// ListInstalled returns all installed formulae.
-func (fc *FormulaCommands) ListInstalled() ([]models.Formula, error) {
-	result := fc.runner.Run("info", "--installed", "--json=v2")
+// ListNames returns just the installed formula names (extremely fast, ~0.03s).
+func (fc *FormulaCommands) ListNames() ([]string, error) {
+	result := fc.runner.Run("list", "--formula")
 	if result.Err != nil {
-		return nil, fmt.Errorf("failed to list formulae: %w", result.Err)
+		return nil, fmt.Errorf("failed to list formula names: %w", result.Err)
 	}
+	return parseLines(result.Stdout), nil
+}
 
-	var resp jsonFormulaResponse
-	if err := json.Unmarshal([]byte(result.Stdout), &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse formulae JSON: %w", err)
+// ListNamesWithVersions returns formula names with versions (~1s).
+func (fc *FormulaCommands) ListNamesWithVersions() (map[string]string, error) {
+	result := fc.runner.Run("list", "--formula", "--versions")
+	if result.Err != nil {
+		return nil, fmt.Errorf("failed to list formula versions: %w", result.Err)
 	}
+	versionMap := make(map[string]string)
+	for _, line := range parseLines(result.Stdout) {
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) == 2 {
+			versionMap[parts[0]] = strings.TrimSpace(parts[1])
+		} else if len(parts) == 1 {
+			versionMap[parts[0]] = ""
+		}
+	}
+	return versionMap, nil
+}
 
-	formulae := make([]models.Formula, 0, len(resp.Formulae))
-	for _, jf := range resp.Formulae {
-		f := convertFormula(jf)
-		formulae = append(formulae, f)
+// ListOutdatedNames returns just the names of outdated formulae (~1.5s).
+func (fc *FormulaCommands) ListOutdatedNames() ([]string, error) {
+	result := fc.runner.Run("outdated", "--formula", "--quiet")
+	if result.Err != nil && result.ExitCode != 0 {
+		return nil, fmt.Errorf("failed to list outdated formulae: %w", result.Err)
 	}
-	return formulae, nil
+	return parseLines(result.Stdout), nil
 }
 
 // ListOutdated returns all formulae that have updates available.
@@ -229,6 +245,18 @@ func (fc *FormulaCommands) Search(query string) ([]string, error) {
 		}
 	}
 	return results, nil
+}
+
+func parseLines(s string) []string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			result = append(result, line)
+		}
+	}
+	return result
 }
 
 func convertFormula(jf jsonFormula) models.Formula {

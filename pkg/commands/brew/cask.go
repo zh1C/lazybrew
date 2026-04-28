@@ -35,32 +35,60 @@ type jsonCask struct {
 	AutoUpdates bool     `json:"auto_updates"`
 }
 
-// ListInstalled returns all installed casks.
-func (cc *CaskCommands) ListInstalled() ([]models.Cask, error) {
-	result := cc.runner.Run("info", "--installed", "--json=v2", "--cask")
+// ListNames returns just the installed cask names (extremely fast, ~0.03s).
+func (cc *CaskCommands) ListNames() ([]string, error) {
+	result := cc.runner.Run("list", "--cask")
 	if result.Err != nil {
-		// If no casks installed, the command may fail
-		if strings.Contains(result.Stderr, "No cask") || result.Stdout == "" {
-			return []models.Cask{}, nil
+		return nil, fmt.Errorf("failed to list cask names: %w", result.Err)
+	}
+	lines := strings.Split(strings.TrimSpace(result.Stdout), "\n")
+	names := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			names = append(names, line)
 		}
-		return nil, fmt.Errorf("failed to list casks: %w", result.Err)
 	}
+	return names, nil
+}
 
-	if strings.TrimSpace(result.Stdout) == "" {
-		return []models.Cask{}, nil
+// ListNamesWithVersions returns cask names with versions (~1s).
+func (cc *CaskCommands) ListNamesWithVersions() (map[string]string, error) {
+	result := cc.runner.Run("list", "--cask", "--versions")
+	if result.Err != nil {
+		return nil, fmt.Errorf("failed to list cask versions: %w", result.Err)
 	}
+	versionMap := make(map[string]string)
+	for _, line := range strings.Split(strings.TrimSpace(result.Stdout), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) == 2 {
+			versionMap[parts[0]] = strings.TrimSpace(parts[1])
+		} else if len(parts) == 1 {
+			versionMap[parts[0]] = ""
+		}
+	}
+	return versionMap, nil
+}
 
-	var resp jsonCaskResponse
-	if err := json.Unmarshal([]byte(result.Stdout), &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse casks JSON: %w", err)
+// ListOutdatedNames returns just the names of outdated casks (~1.5s).
+func (cc *CaskCommands) ListOutdatedNames() ([]string, error) {
+	result := cc.runner.Run("outdated", "--cask", "--quiet")
+	if result.Err != nil && result.ExitCode != 0 {
+		return nil, fmt.Errorf("failed to list outdated casks: %w", result.Err)
 	}
-
-	casks := make([]models.Cask, 0, len(resp.Casks))
-	for _, jc := range resp.Casks {
-		c := convertCask(jc)
-		casks = append(casks, c)
+	lines := strings.Split(strings.TrimSpace(result.Stdout), "\n")
+	names := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			names = append(names, line)
+		}
 	}
-	return casks, nil
+	return names, nil
 }
 
 // ListOutdated returns all outdated casks.
