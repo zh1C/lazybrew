@@ -256,15 +256,15 @@ func (a *App) installSearchResult() (tea.Model, tea.Cmd) {
 	}
 	selected := a.searchResults[a.searchCursor]
 	name := selected
-	if strings.HasPrefix(name, "📦 ") {
-		name = strings.TrimPrefix(name, "📦 ")
+	if strings.HasPrefix(name, "[formula] ") {
+		name = strings.TrimPrefix(name, "[formula] ")
 		a.overlay = OverlayNone
 		a.addLog(cmdLogPrefix.Render("$") + " brew install " + name)
 		return a, runBrewCommand("brew install "+name, func(cb func(string)) brew.CommandResult {
 			return a.cmds.Formula.Install(name, cb)
 		})
-	} else if strings.HasPrefix(name, "🖥️ ") {
-		name = strings.TrimPrefix(name, "🖥️ ")
+	} else if strings.HasPrefix(name, "[cask] ") {
+		name = strings.TrimPrefix(name, "[cask] ")
 		a.overlay = OverlayNone
 		a.addLog(cmdLogPrefix.Render("$") + " brew install --cask " + name)
 		return a, runBrewCommand("brew install --cask "+name, func(cb func(string)) brew.CommandResult {

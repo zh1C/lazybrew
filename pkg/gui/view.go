@@ -14,7 +14,7 @@ func (a *App) View() string {
 		return "Initializing..."
 	}
 
-	// Calculate layout dimensions
+	// Calculate layout dimensions (no title bar, like lazygit)
 	sideWidth := a.width * 30 / 100
 	if sideWidth < 24 {
 		sideWidth = 24
@@ -24,10 +24,7 @@ func (a *App) View() string {
 	}
 	mainWidth := a.width - sideWidth
 	bottomHeight := 1
-	contentHeight := a.height - bottomHeight - 1 // -1 for title bar
-
-	// Render title bar
-	titleBar := a.renderTitleBar()
+	contentHeight := a.height - bottomHeight
 
 	// Render side panels
 	sidePanel := a.renderSidePanel(sideWidth, contentHeight)
@@ -42,7 +39,7 @@ func (a *App) View() string {
 	bottomBar := a.renderBottomBar()
 
 	// Compose full view
-	view := lipgloss.JoinVertical(lipgloss.Left, titleBar, body, bottomBar)
+	view := lipgloss.JoinVertical(lipgloss.Left, body, bottomBar)
 
 	// Render overlay if active
 	if a.overlay != OverlayNone {
@@ -50,49 +47,6 @@ func (a *App) View() string {
 	}
 
 	return view
-}
-
-// --- Title Bar ---
-
-func (a *App) renderTitleBar() string {
-	title := lipgloss.NewStyle().
-		Foreground(primaryColor).
-		Bold(true).
-		Render(" 🍺 lazybrew")
-
-	// Stage indicator
-	stageIndicator := ""
-	switch a.stage {
-	case StageLoading:
-		stageIndicator = lipgloss.NewStyle().
-			Foreground(warningColor).
-			Render(" " + a.spinnerChar() + " Loading...")
-	case StageEnriching:
-		stageIndicator = lipgloss.NewStyle().
-			Foreground(warningColor).
-			Render(" " + a.spinnerChar() + " Enriching data...")
-	case StageComplete:
-		// no indicator
-	}
-
-	errIndicator := ""
-	if a.errMsg != "" {
-		errIndicator = lipgloss.NewStyle().
-			Foreground(errorColor).
-			Render(" ⚠ " + a.errMsg)
-	}
-
-	right := lipgloss.NewStyle().
-		Foreground(dimColor).
-		Render("? help  q quit ")
-
-	left := title + stageIndicator + errIndicator
-	spacer := strings.Repeat(" ", max(0, a.width-lipgloss.Width(left)-lipgloss.Width(right)))
-
-	return lipgloss.NewStyle().
-		Background(lipgloss.Color("#1A1A2E")).
-		Width(a.width).
-		Render(left + spacer + right)
 }
 
 // --- Side Panel ---
@@ -167,7 +121,6 @@ func distributePanelSpace(total int, activeIdx int) [4]int {
 
 func (a *App) renderStatusPanel(width, height int) string {
 	isActive := a.activePanel == StatusPanel
-	title := a.panelTitle(StatusPanel, isActive)
 
 	outdatedCount := len(a.outdatedFormulae) + len(a.outdatedCasks)
 	outdatedStr := a.formatOutdatedCount(outdatedCount)
@@ -175,77 +128,93 @@ func (a *App) renderStatusPanel(width, height int) string {
 		outdatedStr = dimItemStyle.Render(a.spinnerChar())
 	}
 
+	// Stage indicator in status content
+	stageStr := ""
+	switch a.stage {
+	case StageLoading:
+		stageStr = "\n " + dimItemStyle.Render(a.spinnerChar()+" Loading...")
+	case StageEnriching:
+		stageStr = "\n " + dimItemStyle.Render(a.spinnerChar()+" Enriching...")
+	}
+
 	content := fmt.Sprintf(
-		" Formulae: %d  Casks: %d\n Outdated: %s  Taps: %d",
+		" Formulae: %d  Casks: %d\n Outdated: %s  Taps: %d%s",
 		len(a.formulaeNames),
 		len(a.caskNames),
 		outdatedStr,
 		len(a.tapNames),
+		stageStr,
 	)
 
-	return a.wrapPanel(title, content, width, height, isActive)
+	return a.wrapPanel(StatusPanel, nil, content, width, height, isActive, 0, 0)
 }
 
 func (a *App) renderFormulaePanel(width, height int) string {
 	isActive := a.activePanel == FormulaePanel
-	title := a.panelTitleWithTabs(FormulaePanel, isActive, []string{"Installed", "Outdated", "Leaves"}, int(a.formulaeTab))
+	tabs := []string{"Installed", "Outdated", "Leaves"}
 
 	items := a.getFilteredFormulaeNames()
 	content := a.renderNameList(items, a.formulaeCursor, a.formulaeVersions, a.outdatedFormulae, width-2, height-2)
 
 	if a.formulaeLoading {
-		content = dimItemStyle.Render("  " + a.spinnerChar() + " Loading formulae...")
+		content = dimItemStyle.Render(" " + a.spinnerChar() + " Loading formulae...")
 	}
 
-	return a.wrapPanel(title, content, width, height, isActive)
+	cursor := a.formulaeCursor
+	total := len(items)
+	return a.wrapPanel(FormulaePanel, tabs, content, width, height, isActive, cursor, total)
 }
 
 func (a *App) renderCasksPanel(width, height int) string {
 	isActive := a.activePanel == CasksPanel
-	title := a.panelTitleWithTabs(CasksPanel, isActive, []string{"Installed", "Outdated"}, int(a.caskTab))
+	tabs := []string{"Installed", "Outdated"}
 
 	items := a.getFilteredCaskNames()
 	content := a.renderNameList(items, a.casksCursor, a.caskVersions, a.outdatedCasks, width-2, height-2)
 
 	if a.casksLoading {
-		content = dimItemStyle.Render("  " + a.spinnerChar() + " Loading casks...")
+		content = dimItemStyle.Render(" " + a.spinnerChar() + " Loading casks...")
 	}
 
-	return a.wrapPanel(title, content, width, height, isActive)
+	cursor := a.casksCursor
+	total := len(items)
+	return a.wrapPanel(CasksPanel, tabs, content, width, height, isActive, cursor, total)
 }
 
 func (a *App) renderTapsPanel(width, height int) string {
 	isActive := a.activePanel == TapsPanel
-	title := a.panelTitle(TapsPanel, isActive)
 
 	items := a.getFilteredTapNames()
 	content := a.renderTapNameList(items, a.tapsCursor, width-2, height-2)
 
 	if a.tapsLoading {
-		content = dimItemStyle.Render("  " + a.spinnerChar() + " Loading taps...")
+		content = dimItemStyle.Render(" " + a.spinnerChar() + " Loading taps...")
 	}
 
-	return a.wrapPanel(title, content, width, height, isActive)
+	cursor := a.tapsCursor
+	total := len(items)
+	return a.wrapPanel(TapsPanel, nil, content, width, height, isActive, cursor, total)
 }
 
 func (a *App) renderServicesPanel(width, height int) string {
 	isActive := a.activePanel == ServicesPanel
-	title := a.panelTitleWithTabs(ServicesPanel, isActive, []string{"All", "Running", "Stopped"}, int(a.serviceTab))
+	tabs := []string{"All", "Running", "Stopped"}
 
 	items := a.getFilteredServices()
 	content := a.renderServiceList(items, a.servicesCursor, width-2, height-2)
 
 	if a.servicesLoading {
-		content = dimItemStyle.Render("  " + a.spinnerChar() + " Loading services...")
+		content = dimItemStyle.Render(" " + a.spinnerChar() + " Loading services...")
 	}
 
-	return a.wrapPanel(title, content, width, height, isActive)
+	cursor := a.servicesCursor
+	total := len(items)
+	return a.wrapPanel(ServicesPanel, tabs, content, width, height, isActive, cursor, total)
 }
 
 // --- List Renderers ---
 
 // renderNameList renders a list of package names with optional version and outdated markers.
-// This is the unified renderer for formulae and casks (working from name strings, not objects).
 func (a *App) renderNameList(items []string, cursor int, versions map[string]string, outdated map[string]bool, width, maxLines int) string {
 	if len(items) == 0 {
 		return dimItemStyle.Render("  (empty)")
@@ -267,10 +236,10 @@ func (a *App) renderNameList(items []string, cursor int, versions map[string]str
 			name = name[:maxNameLen-1] + "…"
 		}
 
-		// Outdated marker
+		// Outdated marker: * like lazygit uses for modified files
 		marker := " "
 		if outdated[items[i]] {
-			marker = outdatedStyle.Render("▲")
+			marker = outdatedStyle.Render("*")
 		}
 
 		// Pad version to right-align
@@ -279,7 +248,7 @@ func (a *App) renderNameList(items []string, cursor int, versions map[string]str
 			padding = 1
 		}
 
-		versionDisplay := lipgloss.NewStyle().Foreground(dimColor).Render(version)
+		versionDisplay := dimItemStyle.Render(version)
 
 		line := fmt.Sprintf(" %s %s%s%s", marker, name, strings.Repeat(" ", padding), versionDisplay)
 
@@ -316,7 +285,7 @@ func (a *App) renderTapNameList(items []string, cursor, width, maxLines int) str
 			padding = 1
 		}
 
-		line := fmt.Sprintf("  %s%s%s", name, strings.Repeat(" ", padding), lipgloss.NewStyle().Foreground(dimColor).Render(info))
+		line := fmt.Sprintf("  %s%s%s", name, strings.Repeat(" ", padding), dimItemStyle.Render(info))
 
 		if i == cursor {
 			line = selectedItemStyle.Width(width).Render(fmt.Sprintf("  %s%s%s", name, strings.Repeat(" ", padding), info))
@@ -337,14 +306,14 @@ func (a *App) renderServiceList(items []models.Service, cursor, width, maxLines 
 
 	for i := start; i < end; i++ {
 		s := items[i]
-		icon := s.StatusIcon()
 		statusStr := string(s.Status)
 
-		var styledIcon string
+		// Status marker: * for running, x for stopped
+		var marker string
 		if s.IsRunning() {
-			styledIcon = runningStyle.Render(icon)
+			marker = runningStyle.Render("*")
 		} else {
-			styledIcon = stoppedStyle.Render(icon)
+			marker = stoppedStyle.Render("x")
 		}
 
 		padding := width - len(s.Name) - len(statusStr) - 5
@@ -352,10 +321,10 @@ func (a *App) renderServiceList(items []models.Service, cursor, width, maxLines 
 			padding = 1
 		}
 
-		line := fmt.Sprintf(" %s %s%s%s", styledIcon, s.Name, strings.Repeat(" ", padding), lipgloss.NewStyle().Foreground(dimColor).Render(statusStr))
+		line := fmt.Sprintf(" %s %s%s%s", marker, s.Name, strings.Repeat(" ", padding), dimItemStyle.Render(statusStr))
 
 		if i == cursor {
-			line = selectedItemStyle.Width(width).Render(fmt.Sprintf(" %s %s%s%s", icon, s.Name, strings.Repeat(" ", padding), statusStr))
+			line = selectedItemStyle.Width(width).Render(fmt.Sprintf(" %s %s%s%s", marker, s.Name, strings.Repeat(" ", padding), statusStr))
 		}
 		lines = append(lines, line)
 	}
@@ -387,44 +356,42 @@ func (a *App) renderMainArea(width, height int) string {
 
 func (a *App) renderDetailPanel(width, height int) string {
 	isActive := a.focusArea == FocusMainPanel
-	title := "Detail"
 
 	content := a.detailInfo
 	if content == "" {
 		if a.detailLoading {
-			content = dimItemStyle.Render("  " + a.spinnerChar() + " Loading details...")
+			content = dimItemStyle.Render(" " + a.spinnerChar() + " Loading details...")
 		} else if a.stage == StageLoading {
-			content = dimItemStyle.Render("  " + a.spinnerChar() + " Loading...")
+			content = dimItemStyle.Render(" " + a.spinnerChar() + " Loading...")
 		} else {
-			content = dimItemStyle.Render("  Select an item to view details")
+			content = dimItemStyle.Render(" Select an item to view details")
 		}
 	}
 
 	// Apply scrolling
-	lines := strings.Split(content, "\n")
-	if a.detailScroll > 0 && a.detailScroll < len(lines) {
-		lines = lines[a.detailScroll:]
+	contentLines := strings.Split(content, "\n")
+	if a.detailScroll > 0 && a.detailScroll < len(contentLines) {
+		contentLines = contentLines[a.detailScroll:]
 	}
 
 	maxLines := height - 2
 	if maxLines < 1 {
 		maxLines = 1
 	}
-	if len(lines) > maxLines {
-		lines = lines[:maxLines]
+	if len(contentLines) > maxLines {
+		contentLines = contentLines[:maxLines]
 	}
 
-	content = strings.Join(lines, "\n")
+	content = strings.Join(contentLines, "\n")
 
-	return a.wrapPanel(title, content, width, height, isActive)
+	// Use wrapPanelRaw for detail (no panel ID, just a title string)
+	return a.wrapPanelRaw("Detail", content, width, height, isActive)
 }
 
 func (a *App) renderCommandLog(width, height int) string {
-	title := "Command Log"
-
 	var content string
 	if len(a.commandLog) == 0 {
-		content = dimItemStyle.Render("  No commands executed yet")
+		content = dimItemStyle.Render(" No commands executed yet")
 	} else {
 		maxLines := height - 2
 		if maxLines < 1 {
@@ -438,64 +405,71 @@ func (a *App) renderCommandLog(width, height int) string {
 		content = strings.Join(visible, "\n")
 	}
 
-	return a.wrapPanel(title, content, width, height, false)
+	return a.wrapPanelRaw("Command log", content, width, height, false)
 }
 
 // --- Bottom Bar ---
+// Format: "Install: i | Uninstall: u | Keybindings: ?" (like lazygit)
 
 func (a *App) renderBottomBar() string {
-	var keys []string
-
 	if a.filtering {
 		filterView := searchPromptStyle.Render("Filter: ") + a.filterInput.View()
 		return statusBarStyle.Width(a.width).Render(filterView)
 	}
 
+	var items []string
+
 	switch a.activePanel {
 	case FormulaePanel:
-		keys = []string{
-			keyStyle.Render("i") + keyDescStyle.Render("nstall"),
-			keyStyle.Render("u") + keyDescStyle.Render("ninstall"),
-			keyStyle.Render("U") + keyDescStyle.Render("pgrade"),
-			keyStyle.Render("r") + keyDescStyle.Render("einstall"),
-			keyStyle.Render("p") + keyDescStyle.Render("in"),
-			keyStyle.Render("o") + keyDescStyle.Render("pen"),
-			keyStyle.Render("/") + keyDescStyle.Render("filter"),
+		items = []string{
+			"Install: i",
+			"Uninstall: u",
+			"Upgrade: U",
+			"Reinstall: r",
+			"Pin: p",
+			"Open: o",
 		}
 	case CasksPanel:
-		keys = []string{
-			keyStyle.Render("i") + keyDescStyle.Render("nstall"),
-			keyStyle.Render("u") + keyDescStyle.Render("ninstall"),
-			keyStyle.Render("U") + keyDescStyle.Render("pgrade"),
-			keyStyle.Render("z") + keyDescStyle.Render("ap"),
-			keyStyle.Render("o") + keyDescStyle.Render("pen"),
-			keyStyle.Render("/") + keyDescStyle.Render("filter"),
+		items = []string{
+			"Install: i",
+			"Uninstall: u",
+			"Upgrade: U",
+			"Zap: z",
+			"Open: o",
 		}
 	case ServicesPanel:
-		keys = []string{
-			keyStyle.Render("s") + keyDescStyle.Render("tart"),
-			keyStyle.Render("S") + keyDescStyle.Render("top"),
-			keyStyle.Render("r") + keyDescStyle.Render("estart"),
-			keyStyle.Render("/") + keyDescStyle.Render("filter"),
+		items = []string{
+			"Start: s",
+			"Stop: S",
+			"Restart: r",
 		}
 	case TapsPanel:
-		keys = []string{
-			keyStyle.Render("/") + keyDescStyle.Render("filter"),
-		}
+		items = []string{}
 	default:
-		keys = []string{
-			keyStyle.Render("i") + keyDescStyle.Render("nstall"),
-			keyStyle.Render("/") + keyDescStyle.Render("filter"),
+		items = []string{
+			"Install: i",
 		}
 	}
 
-	keys = append(keys,
-		keyStyle.Render("^u") + keyDescStyle.Render("pdate"),
-		keyStyle.Render("^l") + keyDescStyle.Render("cleanup"),
-		keyStyle.Render("?") + keyDescStyle.Render("help"),
+	items = append(items,
+		"Filter: /",
+		"Update: ^u",
+		"Cleanup: ^l",
+		"Keybindings: ?",
 	)
 
-	return statusBarStyle.Width(a.width).Render(" " + strings.Join(keys, "  "))
+	// Truncate if too wide
+	separator := " | "
+	text := strings.Join(items, separator)
+	if lipgloss.Width(text)+2 > a.width {
+		// Try shorter format
+		for lipgloss.Width(text)+2 > a.width && len(items) > 1 {
+			items = items[:len(items)-1]
+		}
+		text = strings.Join(items, separator)
+	}
+
+	return statusBarStyle.Width(a.width).Render(" " + text)
 }
 
 // --- Overlay Rendering ---
@@ -520,11 +494,11 @@ func (a *App) renderOverlay(base string) string {
 func (a *App) renderSearchOverlay() string {
 	var b strings.Builder
 
-	b.WriteString(helpTitleStyle.Render("🔍 Search Packages") + "\n\n")
+	b.WriteString(helpTitleStyle.Render("Search Packages") + "\n\n")
 	b.WriteString(a.searchInput.View() + "\n")
 
 	if len(a.searchResults) > 0 {
-		b.WriteString("\n" + lipgloss.NewStyle().Foreground(dimColor).Render("Results:") + "\n")
+		b.WriteString("\n" + dimItemStyle.Render("Results:") + "\n")
 		maxShow := 15
 		if len(a.searchResults) < maxShow {
 			maxShow = len(a.searchResults)
@@ -539,7 +513,7 @@ func (a *App) renderSearchOverlay() string {
 		if len(a.searchResults) > maxShow {
 			b.WriteString(dimItemStyle.Render(fmt.Sprintf("  ... and %d more", len(a.searchResults)-maxShow)) + "\n")
 		}
-		b.WriteString("\n" + keyDescStyle.Render("[Enter] install  [↑↓] navigate  [Esc] cancel"))
+		b.WriteString("\n" + keyDescStyle.Render("[Enter] install  [up/down] navigate  [Esc] cancel"))
 	} else if a.searchInput.Value() != "" {
 		b.WriteString("\n" + keyDescStyle.Render("[Enter] search  [Esc] cancel"))
 	} else {
@@ -557,7 +531,7 @@ func (a *App) renderSearchOverlay() string {
 func (a *App) renderConfirmOverlay() string {
 	var b strings.Builder
 
-	b.WriteString(helpTitleStyle.Render("⚠️  Confirm") + "\n\n")
+	b.WriteString(helpTitleStyle.Render("Confirm") + "\n\n")
 	b.WriteString(a.confirmMsg + "\n\n")
 	b.WriteString(keyStyle.Render("[y/Enter]") + keyDescStyle.Render(" confirm  ") +
 		keyStyle.Render("[n/Esc]") + keyDescStyle.Render(" cancel"))
@@ -573,7 +547,7 @@ func (a *App) renderConfirmOverlay() string {
 func (a *App) renderHelpOverlay() string {
 	var b strings.Builder
 
-	b.WriteString(helpTitleStyle.Render("⌨️  Keyboard Shortcuts") + "\n\n")
+	b.WriteString(helpTitleStyle.Render("Keybindings") + "\n\n")
 
 	sections := []struct {
 		title string
@@ -626,7 +600,7 @@ func (a *App) renderHelpOverlay() string {
 	}
 
 	for _, sec := range sections {
-		b.WriteString(lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render(sec.title) + "\n")
+		b.WriteString(helpTitleStyle.Render(sec.title) + "\n")
 		for _, k := range sec.keys {
 			b.WriteString(fmt.Sprintf("  %s  %s\n",
 				lipgloss.NewStyle().Foreground(accentColor).Width(12).Render(k[0]),
@@ -688,47 +662,18 @@ func (a *App) placeOverlay(base, overlay string) string {
 	return strings.Join(baseLines, "\n")
 }
 
-// --- Helpers ---
+// --- Panel Wrapping Helpers ---
 
-func (a *App) panelTitle(id PanelID, active bool) string {
-	icon := PanelIcon(id)
-	name := PanelName(id)
-	if active {
-		return activeTitleStyle.Render(icon + " " + name)
-	}
-	return inactiveTitleStyle.Render(icon + " " + name)
-}
-
-func (a *App) panelTitleWithTabs(id PanelID, active bool, tabs []string, activeTab int) string {
-	icon := PanelIcon(id)
-	name := PanelName(id)
-
-	var titleParts []string
-	if active {
-		titleParts = append(titleParts, activeTitleStyle.Render(icon+" "+name))
-	} else {
-		titleParts = append(titleParts, inactiveTitleStyle.Render(icon+" "+name))
-	}
-
-	if active {
-		tabStr := " "
-		for i, t := range tabs {
-			if i == activeTab {
-				tabStr += activeTabStyle.Render(t) + " "
-			} else {
-				tabStr += inactiveTabStyle.Render(t) + " "
-			}
-		}
-		titleParts = append(titleParts, tabStr)
-	}
-
-	return strings.Join(titleParts, "")
-}
-
-func (a *App) wrapPanel(title, content string, width, height int, active bool) string {
+// wrapPanel renders a panel with lazygit-style title embedded in the border.
+// Format: ╭─[1]─Formulae─ Installed - Outdated - Leaves──────── N of M─╮
+func (a *App) wrapPanel(id PanelID, tabs []string, content string, width, height int, active bool, cursor, total int) string {
 	style := inactivePanelStyle
+	titleStyle := inactiveTitleStyle
+	borderColor := inactiveBorderColor
 	if active {
 		style = activePanelStyle
+		titleStyle = activeTitleStyle
+		borderColor = activeBorderColor
 	}
 
 	innerW := width - 2
@@ -741,27 +686,147 @@ func (a *App) wrapPanel(title, content string, width, height int, active bool) s
 		innerH = 1
 	}
 
-	titleLine := title
-	contentLines := strings.Split(content, "\n")
+	// Build the top border with embedded title (lazygit style)
+	// Format: ╭─[1]─Title─ Tab1 - Tab2 - Tab3────────── N of M─╮
+	prefix := PanelIndex(id)
+	name := PanelName(id)
 
-	if len(contentLines) > innerH-1 {
-		contentLines = contentLines[:innerH-1]
+	titleText := prefix + "─" + name
+	if tabs != nil && active {
+		activeTab := a.activeTabForPanel(id)
+		tabParts := make([]string, len(tabs))
+		for i, t := range tabs {
+			if i == activeTab {
+				tabParts[i] = activeTabStyle.Render(t)
+			} else {
+				tabParts[i] = inactiveTabStyle.Render(t)
+			}
+		}
+		titleText += "─ " + strings.Join(tabParts, " - ") + " "
 	}
 
-	for len(contentLines) < innerH-1 {
+	// Right side: "N of M" counter like lazygit
+	counterText := ""
+	if total > 0 {
+		counterText = fmt.Sprintf(" %d of %d", cursor+1, total)
+	}
+
+	// We'll render the title into the top border
+	renderedTitle := titleStyle.Render(titleText)
+
+	// Build content lines
+	contentLines := strings.Split(content, "\n")
+	if len(contentLines) > innerH {
+		contentLines = contentLines[:innerH]
+	}
+	for len(contentLines) < innerH {
 		contentLines = append(contentLines, "")
 	}
 
-	fullContent := titleLine + "\n" + strings.Join(contentLines, "\n")
+	fullContent := strings.Join(contentLines, "\n")
 
-	return style.Width(innerW).Height(innerH).Render(fullContent)
+	// Render the panel with border
+	rendered := style.Width(innerW).Height(innerH).Render(fullContent)
+
+	// Now replace the top border line to embed the title
+	renderedLines := strings.Split(rendered, "\n")
+	if len(renderedLines) > 0 {
+		renderedLines[0] = a.buildBorderTitle(renderedTitle, counterText, width, borderColor)
+	}
+
+	return strings.Join(renderedLines, "\n")
+}
+
+// wrapPanelRaw wraps content with a simple title string (for detail/log panels).
+func (a *App) wrapPanelRaw(title, content string, width, height int, active bool) string {
+	style := inactivePanelStyle
+	titleStyle := inactiveTitleStyle
+	borderColor := inactiveBorderColor
+	if active {
+		style = activePanelStyle
+		titleStyle = activeTitleStyle
+		borderColor = activeBorderColor
+	}
+
+	innerW := width - 2
+	innerH := height - 2
+
+	if innerW < 1 {
+		innerW = 1
+	}
+	if innerH < 1 {
+		innerH = 1
+	}
+
+	renderedTitle := titleStyle.Render(title)
+
+	contentLines := strings.Split(content, "\n")
+	if len(contentLines) > innerH {
+		contentLines = contentLines[:innerH]
+	}
+	for len(contentLines) < innerH {
+		contentLines = append(contentLines, "")
+	}
+
+	fullContent := strings.Join(contentLines, "\n")
+	rendered := style.Width(innerW).Height(innerH).Render(fullContent)
+
+	renderedLines := strings.Split(rendered, "\n")
+	if len(renderedLines) > 0 {
+		renderedLines[0] = a.buildBorderTitle(renderedTitle, "", width, borderColor)
+	}
+
+	return strings.Join(renderedLines, "\n")
+}
+
+// buildBorderTitle builds a top border line with embedded title, like lazygit:
+// ╭─[1]─Formulae─ Installed - Outdated──────── 3 of 42─╮
+func (a *App) buildBorderTitle(renderedTitle, counterText string, width int, borderColor lipgloss.Color) string {
+	colorStyle := lipgloss.NewStyle().Foreground(borderColor)
+
+	left := colorStyle.Render("╭─")
+	right := colorStyle.Render("─╮")
+
+	counterRendered := ""
+	if counterText != "" {
+		counterRendered = dimItemStyle.Render(counterText) + colorStyle.Render("─")
+	}
+
+	// Calculate fill width
+	titleWidth := lipgloss.Width(renderedTitle)
+	counterWidth := lipgloss.Width(counterRendered)
+	leftWidth := lipgloss.Width(left)
+	rightWidth := lipgloss.Width(right)
+
+	fillLen := width - leftWidth - titleWidth - counterWidth - rightWidth
+	if fillLen < 1 {
+		fillLen = 1
+	}
+
+	fill := colorStyle.Render(strings.Repeat("─", fillLen))
+
+	return left + renderedTitle + fill + counterRendered + right
+}
+
+// activeTabForPanel returns the active tab index for the given panel.
+func (a *App) activeTabForPanel(id PanelID) int {
+	switch id {
+	case FormulaePanel:
+		return int(a.formulaeTab)
+	case CasksPanel:
+		return int(a.caskTab)
+	case ServicesPanel:
+		return int(a.serviceTab)
+	default:
+		return 0
+	}
 }
 
 func (a *App) formatOutdatedCount(count int) string {
 	if count == 0 {
-		return cmdLogSuccess.Render("0 ✓")
+		return cmdLogSuccess.Render("0")
 	}
-	return outdatedStyle.Render(fmt.Sprintf("%d ▲", count))
+	return outdatedStyle.Render(fmt.Sprintf("%d", count))
 }
 
 func (a *App) visibleRange(cursor, total, maxVisible int) (int, int) {

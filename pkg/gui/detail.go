@@ -73,7 +73,7 @@ func (a *App) loadDetailForCurrentItem() tea.Cmd {
 
 func (a *App) renderFormulaDetail(f *models.Formula, deps string, uses []string) string {
 	var b strings.Builder
-	title := lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render(f.Name)
+	title := lipgloss.NewStyle().Foreground(activeBorderColor).Bold(true).Render(f.Name)
 	b.WriteString(title + "\n\n")
 
 	fields := []struct{ key, val string }{
@@ -83,10 +83,10 @@ func (a *App) renderFormulaDetail(f *models.Formula, deps string, uses []string)
 		{"License", f.License},
 	}
 	if f.Pinned {
-		fields = append(fields, struct{ key, val string }{"Status", pinnedStyle.Render("📌 Pinned")})
+		fields = append(fields, struct{ key, val string }{"Status", pinnedStyle.Render("Pinned")})
 	}
 	if f.Outdated {
-		fields = append(fields, struct{ key, val string }{"Update", outdatedStyle.Render("▲ Update available")})
+		fields = append(fields, struct{ key, val string }{"Update", outdatedStyle.Render("* Update available")})
 	}
 	if f.KegOnly {
 		fields = append(fields, struct{ key, val string }{"Keg-only", "Yes"})
@@ -97,11 +97,11 @@ func (a *App) renderFormulaDetail(f *models.Formula, deps string, uses []string)
 		}
 	}
 	if deps != "" {
-		b.WriteString("\n" + lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render("Dependencies:") + "\n")
+		b.WriteString("\n" + lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("Dependencies:") + "\n")
 		b.WriteString(deps)
 	}
 	if len(uses) > 0 {
-		b.WriteString("\n" + lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render("Used by:") + "\n")
+		b.WriteString("\n" + lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("Used by:") + "\n")
 		for _, u := range uses {
 			b.WriteString("  " + u + "\n")
 		}
@@ -111,7 +111,7 @@ func (a *App) renderFormulaDetail(f *models.Formula, deps string, uses []string)
 
 func (a *App) renderCaskDetail(c *models.Cask) string {
 	var b strings.Builder
-	title := lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render(c.Name)
+	title := lipgloss.NewStyle().Foreground(activeBorderColor).Bold(true).Render(c.Name)
 	b.WriteString(title + "\n\n")
 
 	fields := []struct{ key, val string }{
@@ -124,7 +124,7 @@ func (a *App) renderCaskDetail(c *models.Cask) string {
 		fields = append(fields, struct{ key, val string }{"Installed", c.Installed})
 	}
 	if c.Outdated {
-		fields = append(fields, struct{ key, val string }{"Update", outdatedStyle.Render("▲ Update available")})
+		fields = append(fields, struct{ key, val string }{"Update", outdatedStyle.Render("* Update available")})
 	}
 	if c.AutoUpdates {
 		fields = append(fields, struct{ key, val string }{"Auto-update", "Yes"})
@@ -139,7 +139,7 @@ func (a *App) renderCaskDetail(c *models.Cask) string {
 
 func (a *App) renderTapDetail(name string) string {
 	var b strings.Builder
-	title := lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render(name)
+	title := lipgloss.NewStyle().Foreground(activeBorderColor).Bold(true).Render(name)
 	b.WriteString(title + "\n\n")
 
 	// Try to find the tap in detailed taps data
@@ -170,14 +170,14 @@ func (a *App) renderTapDetail(name string) string {
 
 func (a *App) renderServiceDetail(s *models.Service) string {
 	var b strings.Builder
-	title := lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render(s.Name)
+	title := lipgloss.NewStyle().Foreground(activeBorderColor).Bold(true).Render(s.Name)
 	b.WriteString(title + "\n\n")
 
 	statusStr := string(s.Status)
 	if s.IsRunning() {
-		statusStr = runningStyle.Render("● Running")
+		statusStr = runningStyle.Render("Running")
 	} else {
-		statusStr = stoppedStyle.Render("■ Stopped")
+		statusStr = stoppedStyle.Render("Stopped")
 	}
 
 	fields := []struct{ key, val string }{
@@ -195,7 +195,7 @@ func (a *App) renderServiceDetail(s *models.Service) string {
 
 func (a *App) renderStatusDetail() string {
 	var b strings.Builder
-	title := lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render("Homebrew Status")
+	title := lipgloss.NewStyle().Foreground(activeBorderColor).Bold(true).Render("Homebrew Status")
 	b.WriteString(title + "\n\n")
 
 	b.WriteString(detailKeyStyle.Render("Formulae:") + " " + fmt.Sprintf("%d installed", len(a.formulaeNames)) + "\n")
@@ -207,7 +207,7 @@ func (a *App) renderStatusDetail() string {
 	if outdatedCount > 0 {
 		b.WriteString(detailKeyStyle.Render("Outdated:") + " " + outdatedStyle.Render(fmt.Sprintf("%d packages", outdatedCount)) + "\n")
 	} else if a.stage == StageComplete {
-		b.WriteString(detailKeyStyle.Render("Outdated:") + " " + cmdLogSuccess.Render("All up to date ✓") + "\n")
+		b.WriteString(detailKeyStyle.Render("Outdated:") + " " + cmdLogSuccess.Render("All up to date") + "\n")
 	} else {
 		b.WriteString(detailKeyStyle.Render("Outdated:") + " " + dimItemStyle.Render("checking...") + "\n")
 	}
@@ -215,7 +215,7 @@ func (a *App) renderStatusDetail() string {
 	b.WriteString(detailKeyStyle.Render("Leaves:") + " " + fmt.Sprintf("%d formulae", len(a.leaves)) + "\n")
 
 	if a.stage != StageComplete {
-		b.WriteString("\n" + lipgloss.NewStyle().Foreground(warningColor).Render("⏳ Loading additional data..."))
+		b.WriteString("\n" + lipgloss.NewStyle().Foreground(warningColor).Render("Loading additional data..."))
 	}
 
 	return b.String()

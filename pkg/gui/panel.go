@@ -1,5 +1,7 @@
 package gui
 
+import "fmt"
+
 // PanelID identifies each side panel.
 type PanelID int
 
@@ -32,22 +34,9 @@ func PanelName(id PanelID) string {
 	}
 }
 
-// PanelIcon returns a display icon for the panel.
-func PanelIcon(id PanelID) string {
-	switch id {
-	case StatusPanel:
-		return "📊"
-	case FormulaePanel:
-		return "📦"
-	case CasksPanel:
-		return "🖥️"
-	case TapsPanel:
-		return "🔌"
-	case ServicesPanel:
-		return "⚙️"
-	default:
-		return ""
-	}
+// PanelIndex returns the jump-key prefix like lazygit's [1], [2], etc.
+func PanelIndex(id PanelID) string {
+	return fmt.Sprintf("[%d]", int(id)+1)
 }
 
 // TabID identifies tabs within a panel.

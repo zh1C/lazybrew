@@ -201,10 +201,10 @@ func (a *App) handleSearchResult(msg SearchResultMsg) (tea.Model, tea.Cmd) {
 	}
 	a.searchResults = make([]string, 0)
 	for _, f := range msg.Formulae {
-		a.searchResults = append(a.searchResults, "📦 "+f)
+		a.searchResults = append(a.searchResults, "[formula] "+f)
 	}
 	for _, c := range msg.Casks {
-		a.searchResults = append(a.searchResults, "🖥️ "+c)
+		a.searchResults = append(a.searchResults, "[cask] "+c)
 	}
 	a.searchCursor = 0
 	return a, nil
