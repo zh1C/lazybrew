@@ -125,13 +125,6 @@ var (
 	cmdLogError = lipgloss.NewStyle().
 			Foreground(errorColor)
 
-	// Popup/dialog overlay style
-	dialogBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(activeBorderColor).
-			Padding(1, 2).
-			Width(50)
-
 	// Search input style
 	searchPromptStyle = lipgloss.NewStyle().
 				Foreground(accentColor).

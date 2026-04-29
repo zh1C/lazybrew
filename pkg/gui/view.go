@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/zh1C/lazybrew/pkg/commands/models"
 )
 
@@ -504,33 +505,208 @@ func (a *App) renderBottomBar() string {
 	return statusBarStyle.Width(a.width).Render(" " + text)
 }
 
-// --- Overlay Rendering ---
+// ============================================================
+// Popup System — reusable overlay rendering
+// ============================================================
+
+// popupWidth calculates popup panel width的的
+func (a *App) popupWidth(maxWidth int) int {
+	panelWidth := 4 * a.width / 7
+	if panelWidth > maxWidth {
+		panelWidth = maxWidth
+	}
+	minWidth := 80
+	if panelWidth < minWidth {
+		panelWidth = a.width - 2
+		if panelWidth > minWidth {
+			panelWidth = minWidth
+		}
+	}
+	if panelWidth < 20 {
+		panelWidth = 20
+	}
+	return panelWidth
+}
+
+// renderPopupBox renders a bordered popup box with title, body content, and footer hints.
+// This is the reusable building block for all popups (lazygit: CreatePopupPanel).
+//
+//	╭─ Title ──────────────────────╮
+//	│ body content                 │
+//	│                              │
+//	│ [key] hint  [key] hint       │
+//	╰──────────────────────────────╯
+func (a *App) renderPopupBox(title, body, footer string, maxWidth int) string {
+	panelW := a.popupWidth(maxWidth)
+	innerW := panelW - 4 // 2 border + 2 padding
+	if innerW < 10 {
+		innerW = 10
+	}
+
+	// Wrap body lines to innerW
+	var content strings.Builder
+	if body != "" {
+		for _, line := range strings.Split(body, "\n") {
+			content.WriteString(wrapText(line, innerW) + "\n")
+		}
+	}
+	if footer != "" {
+		content.WriteString("\n" + footer)
+	}
+
+	// Cap height at 75% of terminal
+	contentStr := strings.TrimRight(content.String(), "\n")
+	contentLines := strings.Split(contentStr, "\n")
+	maxH := a.height * 3 / 4
+	if maxH < 5 {
+		maxH = 5
+	}
+	if len(contentLines) > maxH {
+		contentLines = contentLines[:maxH]
+		contentStr = strings.Join(contentLines, "\n")
+	}
+
+	// Build the box with title in border
+	borderColor := activeBorderColor
+	colorStyle := lipgloss.NewStyle().Foreground(borderColor)
+	titleRendered := lipgloss.NewStyle().Foreground(borderColor).Bold(true).Render(" " + title + " ")
+
+	// Render content inside a bordered box
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Padding(0, 1).
+		Width(innerW + 2) // innerW + 2 padding
+
+	rendered := boxStyle.Render(contentStr)
+
+	// Replace top border to embed title (same as wrapPanel pattern)
+	renderedLines := strings.Split(rendered, "\n")
+	if len(renderedLines) > 0 {
+		left := colorStyle.Render("╭─")
+		right := colorStyle.Render("─╮")
+		totalW := panelW
+		fillLen := totalW - lipgloss.Width(left) - lipgloss.Width(titleRendered) - lipgloss.Width(right)
+		if fillLen < 1 {
+			fillLen = 1
+		}
+		fill := colorStyle.Render(strings.Repeat("─", fillLen))
+		renderedLines[0] = left + titleRendered + fill + right
+	}
+
+	return strings.Join(renderedLines, "\n")
+}
+
+// placePopup composites a popup string on top of the base view using
+// ANSI-safe string splicing. Unlike lipgloss.Place (which replaces the base
+// entirely with whitespace), this preserves the background content on both
+// sides of the popup, similar to gocui's painter's algorithm but at the
+// string level.
+//
+// For each line in the popup's vertical range:
+//
+//	result = base[0:offsetX] + popupLine + base[offsetX+popupW:]
+//
+// All cuts use ansi.Truncate / ansi.TruncateLeft so ANSI escape sequences
+// are never broken.
+func (a *App) placePopup(base, popup string) string {
+	baseLines := strings.Split(base, "\n")
+	popupLines := strings.Split(popup, "\n")
+
+	popupW := lipgloss.Width(popup)
+	popupH := len(popupLines)
+
+	// Center the popup
+	offsetY := (a.height - popupH) / 2
+	offsetX := (a.width - popupW) / 2
+	if offsetY < 0 {
+		offsetY = 0
+	}
+	if offsetX < 0 {
+		offsetX = 0
+	}
+
+	// Ensure base has enough lines
+	for len(baseLines) < offsetY+popupH {
+		baseLines = append(baseLines, strings.Repeat(" ", a.width))
+	}
+
+	for i, pLine := range popupLines {
+		y := offsetY + i
+		if y >= len(baseLines) {
+			break
+		}
+
+		bLine := baseLines[y]
+		bLineW := ansi.StringWidth(bLine)
+
+		// Pad base line to at least cover the popup area
+		if bLineW < offsetX+popupW {
+			bLine = bLine + strings.Repeat(" ", offsetX+popupW-bLineW)
+		}
+
+		// Three-segment splice: left | popup | right
+		left := ansi.Truncate(bLine, offsetX, "")
+		right := ansi.TruncateLeft(bLine, offsetX+popupW, "")
+
+		baseLines[y] = left + pLine + right
+	}
+
+	return strings.Join(baseLines, "\n")
+}
+
+// wrapText does simple word-boundary line wrapping to fit within maxWidth.
+func wrapText(s string, maxWidth int) string {
+	if lipgloss.Width(s) <= maxWidth || maxWidth <= 0 {
+		return s
+	}
+	var result strings.Builder
+	words := strings.Fields(s)
+	lineLen := 0
+	for i, w := range words {
+		wLen := lipgloss.Width(w)
+		if i > 0 && lineLen+1+wLen > maxWidth {
+			result.WriteString("\n")
+			lineLen = 0
+		}
+		if lineLen > 0 {
+			result.WriteString(" ")
+			lineLen++
+		}
+		result.WriteString(w)
+		lineLen += wLen
+	}
+	return result.String()
+}
+
+// --- Overlay Dispatch ---
 
 func (a *App) renderOverlay(base string) string {
-	var overlay string
+	var popup string
 
 	switch a.overlay {
 	case OverlaySearch:
-		overlay = a.renderSearchOverlay()
+		popup = a.renderSearchPopup()
 	case OverlayConfirm:
-		overlay = a.renderConfirmOverlay()
+		popup = a.renderConfirmPopup()
 	case OverlayHelp:
-		overlay = a.renderHelpOverlay()
+		popup = a.renderHelpPopup()
 	default:
 		return base
 	}
 
-	return a.placeOverlay(base, overlay)
+	return a.placePopup(base, popup)
 }
 
-func (a *App) renderSearchOverlay() string {
-	var b strings.Builder
+// --- Popup Content Builders ---
 
-	b.WriteString(helpTitleStyle.Render("Search Packages") + "\n\n")
-	b.WriteString(a.searchInput.View() + "\n")
+func (a *App) renderSearchPopup() string {
+	var body strings.Builder
+
+	body.WriteString(a.searchInput.View() + "\n")
 
 	if len(a.searchResults) > 0 {
-		b.WriteString("\n" + dimItemStyle.Render("Results:") + "\n")
+		body.WriteString("\n" + dimItemStyle.Render("Results:") + "\n")
 		maxShow := 15
 		if len(a.searchResults) < maxShow {
 			maxShow = len(a.searchResults)
@@ -540,46 +716,35 @@ func (a *App) renderSearchOverlay() string {
 			if i == a.searchCursor {
 				prefix = selectedItemStyle.Render("> ")
 			}
-			b.WriteString(prefix + a.searchResults[i] + "\n")
+			body.WriteString(prefix + a.searchResults[i] + "\n")
 		}
 		if len(a.searchResults) > maxShow {
-			b.WriteString(dimItemStyle.Render(fmt.Sprintf("  ... and %d more", len(a.searchResults)-maxShow)) + "\n")
+			body.WriteString(dimItemStyle.Render(fmt.Sprintf("  ... and %d more", len(a.searchResults)-maxShow)) + "\n")
 		}
-		b.WriteString("\n" + keyDescStyle.Render("[Enter] install  [up/down] navigate  [Esc] cancel"))
+	}
+
+	var footer string
+	if len(a.searchResults) > 0 {
+		footer = keyDescStyle.Render("[Enter] install  [↑/↓] navigate  [Esc] cancel")
 	} else if a.searchInput.Value() != "" {
-		b.WriteString("\n" + keyDescStyle.Render("[Enter] search  [Esc] cancel"))
+		footer = keyDescStyle.Render("[Enter] search  [Esc] cancel")
 	} else {
-		b.WriteString("\n" + keyDescStyle.Render("Type to search, [Enter] to search, [Esc] to cancel"))
+		footer = keyDescStyle.Render("Type to search, [Enter] to search, [Esc] to cancel")
 	}
 
-	width := 56
-	if a.width < 60 {
-		width = a.width - 4
-	}
-
-	return dialogBoxStyle.Width(width).Render(b.String())
+	return a.renderPopupBox("Search Packages", body.String(), footer, 80)
 }
 
-func (a *App) renderConfirmOverlay() string {
-	var b strings.Builder
+func (a *App) renderConfirmPopup() string {
+	body := a.confirmMsg
+	footer := keyStyle.Render("[y/Enter]") + keyDescStyle.Render(" confirm  ") +
+		keyStyle.Render("[n/Esc]") + keyDescStyle.Render(" cancel")
 
-	b.WriteString(helpTitleStyle.Render("Confirm") + "\n\n")
-	b.WriteString(a.confirmMsg + "\n\n")
-	b.WriteString(keyStyle.Render("[y/Enter]") + keyDescStyle.Render(" confirm  ") +
-		keyStyle.Render("[n/Esc]") + keyDescStyle.Render(" cancel"))
-
-	width := 50
-	if a.width < 54 {
-		width = a.width - 4
-	}
-
-	return dialogBoxStyle.Width(width).Render(b.String())
+	return a.renderPopupBox("Confirm", body, footer, 60)
 }
 
-func (a *App) renderHelpOverlay() string {
-	var b strings.Builder
-
-	b.WriteString(helpTitleStyle.Render("Keybindings") + "\n\n")
+func (a *App) renderHelpPopup() string {
+	var body strings.Builder
 
 	sections := []struct {
 		title string
@@ -633,66 +798,19 @@ func (a *App) renderHelpOverlay() string {
 	}
 
 	for _, sec := range sections {
-		b.WriteString(helpTitleStyle.Render(sec.title) + "\n")
+		body.WriteString(helpTitleStyle.Render(sec.title) + "\n")
 		for _, k := range sec.keys {
-			b.WriteString(fmt.Sprintf("  %s  %s\n",
+			body.WriteString(fmt.Sprintf("  %s  %s\n",
 				lipgloss.NewStyle().Foreground(accentColor).Width(12).Render(k[0]),
 				keyDescStyle.Render(k[1]),
 			))
 		}
-		b.WriteString("\n")
+		body.WriteString("\n")
 	}
 
-	b.WriteString(keyDescStyle.Render("[Esc/?/q] close help"))
+	footer := keyDescStyle.Render("[Esc/?/q] close help")
 
-	width := 48
-	if a.width < 52 {
-		width = a.width - 4
-	}
-
-	return dialogBoxStyle.Width(width).Render(b.String())
-}
-
-// placeOverlay centers an overlay on top of the base view.
-func (a *App) placeOverlay(base, overlay string) string {
-	baseLines := strings.Split(base, "\n")
-	overlayLines := strings.Split(overlay, "\n")
-
-	overlayW := lipgloss.Width(overlay)
-	overlayH := len(overlayLines)
-
-	startY := (a.height - overlayH) / 2
-	startX := (a.width - overlayW) / 2
-
-	if startY < 0 {
-		startY = 0
-	}
-	if startX < 0 {
-		startX = 0
-	}
-
-	for i, oLine := range overlayLines {
-		y := startY + i
-		if y >= len(baseLines) {
-			break
-		}
-
-		baseLine := baseLines[y]
-		baseRunes := []rune(baseLine)
-		overRunes := []rune(oLine)
-
-		for len(baseRunes) < startX+len(overRunes) {
-			baseRunes = append(baseRunes, ' ')
-		}
-
-		result := string(baseRunes[:startX]) + string(overRunes)
-		if startX+len(overRunes) < len(baseRunes) {
-			result += string(baseRunes[startX+len(overRunes):])
-		}
-		baseLines[y] = result
-	}
-
-	return strings.Join(baseLines, "\n")
+	return a.renderPopupBox("Keybindings", body.String(), footer, 60)
 }
 
 // --- Panel Wrapping Helpers ---
