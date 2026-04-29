@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -14,13 +15,15 @@ func (a *App) View() string {
 		return "Initializing..."
 	}
 
-	// Calculate layout dimensions (no title bar, like lazygit)
-	sideWidth := a.width * 30 / 100
+	// Calculate layout dimensions — lazygit uses SidePanelWidth: 0.3333
+	// sideSectionWeight = Round(120 * 0.3333) = 40, mainSectionWeight = Round(120 * 0.6667) = 80
+	const sidePanelRatio = 0.3333
+	const maxColumnCount = 120
+	sideSectionWeight := int(math.Round(maxColumnCount * sidePanelRatio))
+	mainSectionWeight := int(math.Round(maxColumnCount * (1 - sidePanelRatio)))
+	sideWidth := a.width * sideSectionWeight / (sideSectionWeight + mainSectionWeight)
 	if sideWidth < 24 {
 		sideWidth = 24
-	}
-	if sideWidth > 40 {
-		sideWidth = 40
 	}
 	mainWidth := a.width - sideWidth
 	bottomHeight := 1
@@ -54,20 +57,66 @@ func (a *App) View() string {
 func (a *App) renderSidePanel(width, height int) string {
 	innerWidth := width - 2
 
-	statusH := 5
-	remainH := height - statusH
-	if remainH < 4 {
-		remainH = 4
-	}
+	// Status: always Size:3 (like lazygit — border + 1 line content + border)
+	statusH := 3
 
-	panelHeights := a.calculatePanelHeights(remainH)
+	// Services: collapsed Size:3 when not active, Weight:1 when active (like lazygit's Stash)
+	servicesActive := a.activePanel == ServicesPanel
+	var servicesH int
+	var formulaeH, casksH, tapsH int
+
+	if servicesActive {
+		// Four panels share remaining space equally (all Weight:1)
+		remainH := height - statusH
+		if remainH < 12 {
+			remainH = 12
+		}
+		eachH := remainH / 4
+		extra := remainH % 4
+		formulaeH = eachH
+		casksH = eachH
+		tapsH = eachH
+		servicesH = eachH
+		// Distribute remainder to first panels
+		if extra > 0 {
+			formulaeH++
+			extra--
+		}
+		if extra > 0 {
+			casksH++
+			extra--
+		}
+		if extra > 0 {
+			tapsH++
+		}
+	} else {
+		// Services collapsed (Size:3), three panels share remaining space equally
+		servicesH = 3
+		remainH := height - statusH - servicesH
+		if remainH < 9 {
+			remainH = 9
+		}
+		eachH := remainH / 3
+		extra := remainH % 3
+		formulaeH = eachH
+		casksH = eachH
+		tapsH = eachH
+		// Distribute remainder
+		if extra > 0 {
+			formulaeH++
+			extra--
+		}
+		if extra > 0 {
+			casksH++
+		}
+	}
 
 	var sections []string
 	sections = append(sections, a.renderStatusPanel(innerWidth, statusH))
-	sections = append(sections, a.renderFormulaePanel(innerWidth, panelHeights[0]))
-	sections = append(sections, a.renderCasksPanel(innerWidth, panelHeights[1]))
-	sections = append(sections, a.renderTapsPanel(innerWidth, panelHeights[2]))
-	sections = append(sections, a.renderServicesPanel(innerWidth, panelHeights[3]))
+	sections = append(sections, a.renderFormulaePanel(innerWidth, formulaeH))
+	sections = append(sections, a.renderCasksPanel(innerWidth, casksH))
+	sections = append(sections, a.renderTapsPanel(innerWidth, tapsH))
+	sections = append(sections, a.renderServicesPanel(innerWidth, servicesH))
 
 	combined := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
@@ -82,40 +131,8 @@ func (a *App) renderSidePanel(width, height int) string {
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
 }
 
-func (a *App) calculatePanelHeights(total int) [4]int {
-	heights := [4]int{}
-	switch a.activePanel {
-	case FormulaePanel:
-		heights = distributePanelSpace(total, 0)
-	case CasksPanel:
-		heights = distributePanelSpace(total, 1)
-	case TapsPanel:
-		heights = distributePanelSpace(total, 2)
-	case ServicesPanel:
-		heights = distributePanelSpace(total, 3)
-	default:
-		heights = distributePanelSpace(total, 0)
-	}
-	return heights
-}
-
-func distributePanelSpace(total int, activeIdx int) [4]int {
-	heights := [4]int{}
-	minH := 3
-	remaining := total - minH*4
-	if remaining < 0 {
-		remaining = 0
-		minH = total / 4
-		if minH < 2 {
-			minH = 2
-		}
-	}
-	for i := range heights {
-		heights[i] = minH
-	}
-	heights[activeIdx] += remaining
-	return heights
-}
+// calculatePanelHeights and distributePanelSpace removed — height distribution
+// is now computed inline in renderSidePanel using lazygit's Weight/Size pattern.
 
 // --- Panel Renderers ---
 
@@ -123,28 +140,45 @@ func (a *App) renderStatusPanel(width, height int) string {
 	isActive := a.activePanel == StatusPanel
 
 	outdatedCount := len(a.outdatedFormulae) + len(a.outdatedCasks)
-	outdatedStr := a.formatOutdatedCount(outdatedCount)
-	if a.stage != StageComplete && outdatedCount == 0 {
-		outdatedStr = dimItemStyle.Render(a.spinnerChar())
-	}
 
-	// Stage indicator in status content
-	stageStr := ""
-	switch a.stage {
-	case StageLoading:
-		stageStr = "\n " + dimItemStyle.Render(a.spinnerChar()+" Loading...")
-	case StageEnriching:
-		stageStr = "\n " + dimItemStyle.Render(a.spinnerChar()+" Enriching...")
-	}
+	// Single-line content, adaptive to available width (like lazygit's "repo → branch")
+	// Width tiers: full → compact → minimal
+	availW := width - 2 // inner content width
 
-	content := fmt.Sprintf(
-		" Formulae: %d  Casks: %d\n Outdated: %s  Taps: %d%s",
-		len(a.formulaeNames),
-		len(a.caskNames),
-		outdatedStr,
-		len(a.tapNames),
-		stageStr,
-	)
+	var content string
+	switch {
+	case a.stage == StageLoading:
+		content = fmt.Sprintf(" %s Loading...", a.spinnerChar())
+	case a.stage == StageEnriching:
+		// Show counts + spinner
+		full := fmt.Sprintf(" Formulae: %d  Casks: %d  Taps: %d  %s",
+			len(a.formulaeNames), len(a.caskNames), len(a.tapNames), a.spinnerChar())
+		compact := fmt.Sprintf(" F: %d  C: %d  T: %d  %s",
+			len(a.formulaeNames), len(a.caskNames), len(a.tapNames), a.spinnerChar())
+		if len(full) <= availW {
+			content = full
+		} else {
+			content = compact
+		}
+	default:
+		// Stage complete — show full stats with outdated
+		outStr := fmt.Sprintf("%d", outdatedCount)
+		full := fmt.Sprintf(" Formulae: %d  Casks: %d  Taps: %d  Outdated: %s",
+			len(a.formulaeNames), len(a.caskNames), len(a.tapNames), outStr)
+		medium := fmt.Sprintf(" Formulae: %d  Casks: %d  Outdated: %s",
+			len(a.formulaeNames), len(a.caskNames), outStr)
+		compact := fmt.Sprintf(" F: %d  C: %d  T: %d  Out: %s",
+			len(a.formulaeNames), len(a.caskNames), len(a.tapNames), outStr)
+
+		switch {
+		case len(full) <= availW:
+			content = full
+		case len(medium) <= availW:
+			content = medium
+		default:
+			content = compact
+		}
+	}
 
 	return a.wrapPanel(StatusPanel, nil, content, width, height, isActive, 0, 0)
 }
