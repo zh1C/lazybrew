@@ -6,7 +6,6 @@ import (
 
 // ============================================================
 // Key Handling — all keyboard event dispatch lives here
-// (like lazygit's gui/keybindings.go)
 // ============================================================
 
 func (a *App) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -22,12 +21,18 @@ func (a *App) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, tea.Quit
 
 	// Panel navigation
-	case "tab", "]":
+	case "tab":
 		a.nextPanel()
 		return a, a.loadDetailForCurrentItem()
-	case "shift+tab", "[":
+	case "shift+tab":
 		a.prevPanel()
 		return a, a.loadDetailForCurrentItem()
+
+	// Tab switching within panel
+	case "]":
+		return a.nextTab()
+	case "[":
+		return a.prevTab()
 
 	// Focus switching
 	case "h":
@@ -55,7 +60,7 @@ func (a *App) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.moveCursorToBottom()
 		return a, a.loadDetailForCurrentItem()
 
-	// Tab switching
+	// Tab switching by number
 	case "1":
 		return a.switchTab(0)
 	case "2":

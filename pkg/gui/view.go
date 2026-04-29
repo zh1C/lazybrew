@@ -15,7 +15,7 @@ func (a *App) View() string {
 		return "Initializing..."
 	}
 
-	// Calculate layout dimensions — lazygit uses SidePanelWidth: 0.3333
+	// Calculate layout dimensions
 	// sideSectionWeight = Round(120 * 0.3333) = 40, mainSectionWeight = Round(120 * 0.6667) = 80
 	const sidePanelRatio = 0.3333
 	const maxColumnCount = 120
@@ -57,10 +57,10 @@ func (a *App) View() string {
 func (a *App) renderSidePanel(width, height int) string {
 	innerWidth := width - 2
 
-	// Status: always Size:3 (like lazygit — border + 1 line content + border)
+	// Status: always Size:3
 	statusH := 3
 
-	// Services: collapsed Size:3 when not active, Weight:1 when active (like lazygit's Stash)
+	// Services: collapsed Size:3 when not active, Weight:1 when active
 	servicesActive := a.activePanel == ServicesPanel
 	var servicesH int
 	var formulaeH, casksH, tapsH int
@@ -132,7 +132,7 @@ func (a *App) renderSidePanel(width, height int) string {
 }
 
 // calculatePanelHeights and distributePanelSpace removed — height distribution
-// is now computed inline in renderSidePanel using lazygit's Weight/Size pattern.
+// is now computed inline in renderSidePanel
 
 // --- Panel Renderers ---
 
@@ -141,7 +141,7 @@ func (a *App) renderStatusPanel(width, height int) string {
 
 	outdatedCount := len(a.outdatedFormulae) + len(a.outdatedCasks)
 
-	// Single-line content, adaptive to available width (like lazygit's "repo → branch")
+	// Single-line content, adaptive to available width
 	// Width tiers: full → compact → minimal
 	availW := width - 2 // inner content width
 
@@ -270,7 +270,7 @@ func (a *App) renderNameList(items []string, cursor int, versions map[string]str
 			name = name[:maxNameLen-1] + "…"
 		}
 
-		// Outdated marker: * like lazygit uses for modified files
+		// Outdated marker: *
 		marker := " "
 		if outdated[items[i]] {
 			marker = outdatedStyle.Render("*")
@@ -441,7 +441,7 @@ func (a *App) renderCommandLog(width, height int) string {
 }
 
 // --- Bottom Bar ---
-// Format: "Install: i | Uninstall: u | Keybindings: ?" (like lazygit)
+// Format: "Install: i | Uninstall: u | Keybindings: ?"
 
 func (a *App) renderBottomBar() string {
 	if a.filtering {
@@ -590,9 +590,10 @@ func (a *App) renderHelpOverlay() string {
 			[][2]string{
 				{"j/k", "Move up/down"},
 				{"h/l", "Switch side/main focus"},
-				{"Tab/]", "Next panel"},
-				{"Shift+Tab/[", "Previous panel"},
-				{"1/2/3", "Switch tab"},
+				{"Tab", "Next panel"},
+				{"Shift+Tab", "Previous panel"},
+				{"] / [", "Next/Prev tab"},
+				{"1/2/3", "Jump to tab"},
 				{"g/G", "Go to top/bottom"},
 				{"J/K", "Scroll detail panel"},
 			},
@@ -696,7 +697,7 @@ func (a *App) placeOverlay(base, overlay string) string {
 
 // --- Panel Wrapping Helpers ---
 
-// wrapPanel renders a panel with lazygit-style title embedded in the border.
+// wrapPanel renders a panel with title embedded in the border.
 // Format: ╭─[1]─Formulae─ Installed - Outdated - Leaves──────── N of M─╮
 func (a *App) wrapPanel(id PanelID, tabs []string, content string, width, height int, active bool, cursor, total int) string {
 	style := inactivePanelStyle
@@ -718,7 +719,7 @@ func (a *App) wrapPanel(id PanelID, tabs []string, content string, width, height
 		innerH = 1
 	}
 
-	// Build the top border with embedded title (lazygit style)
+	// Build the top border with embedded title
 	// Format: ╭─[1]─Title─ Tab1 - Tab2 - Tab3────────── N of M─╮
 	prefix := PanelIndex(id)
 	name := PanelName(id)
@@ -737,7 +738,7 @@ func (a *App) wrapPanel(id PanelID, tabs []string, content string, width, height
 		titleText += "─ " + strings.Join(tabParts, " - ") + " "
 	}
 
-	// Right side: "N of M" counter like lazygit
+	// Right side: "N of M" counter
 	counterText := ""
 	if total > 0 {
 		counterText = fmt.Sprintf(" %d of %d", cursor+1, total)
@@ -811,7 +812,7 @@ func (a *App) wrapPanelRaw(title, content string, width, height int, active bool
 	return strings.Join(renderedLines, "\n")
 }
 
-// buildBorderTitle builds a top border line with embedded title, like lazygit:
+// buildBorderTitle builds a top border line with embedded title
 // ╭─[1]─Formulae─ Installed - Outdated──────── 3 of 42─╮
 func (a *App) buildBorderTitle(renderedTitle, counterText string, width int, borderColor lipgloss.Color) string {
 	colorStyle := lipgloss.NewStyle().Foreground(borderColor)
@@ -852,13 +853,6 @@ func (a *App) activeTabForPanel(id PanelID) int {
 	default:
 		return 0
 	}
-}
-
-func (a *App) formatOutdatedCount(count int) string {
-	if count == 0 {
-		return cmdLogSuccess.Render("0")
-	}
-	return outdatedStyle.Render(fmt.Sprintf("%d", count))
 }
 
 func (a *App) visibleRange(cursor, total, maxVisible int) (int, int) {

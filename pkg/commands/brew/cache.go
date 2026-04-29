@@ -9,20 +9,8 @@ import (
 	"strings"
 )
 
-// ============================================================
 // Local cache reader — reads Homebrew's local file system and
-// API cache to avoid slow Ruby startup overhead (~1s per brew call).
-//
-// Data sources:
-//   - Cellar directory     → installed formula names + versions (0.01s)
-//   - Caskroom directory   → installed cask names + versions   (0.01s)
-//   - Library/Taps         → tap directory listing              (0.001s)
-//   - INSTALL_RECEIPT.json → install metadata per formula       (0.07s)
-//   - formula.jws.json     → full formula metadata cache        (0.19s)
-//   - cask.jws.json        → full cask metadata cache           (0.16s)
-//
-// Like lazygit's file-system-first approach for git status.
-// ============================================================
+// API cache to avoid slow Ruby startup overhead
 
 // CacheReader reads Homebrew data from local files instead of brew CLI.
 type CacheReader struct {
@@ -52,9 +40,7 @@ func detectAPICacheDir() string {
 	return filepath.Join(home, "Library", "Caches", "Homebrew", "api")
 }
 
-// ============================================================
 // Layer 0: Direct file system reads (0ms level)
-// ============================================================
 
 // InstalledFormulaNames reads Cellar directory for installed formula names.
 func (c *CacheReader) InstalledFormulaNames() ([]string, error) {
@@ -178,9 +164,7 @@ func (c *CacheReader) TapNames() ([]string, error) {
 	return names, nil
 }
 
-// ============================================================
 // Layer 0.5: INSTALL_RECEIPT.json batch read (0.07s for all)
-// ============================================================
 
 // ReceiptInfo holds data from INSTALL_RECEIPT.json.
 type ReceiptInfo struct {
@@ -248,28 +232,26 @@ func (c *CacheReader) AllReceipts() (map[string]*ReceiptInfo, error) {
 	return receipts, nil
 }
 
-// ============================================================
 // Layer 1: API Cache — full formula/cask metadata (~200ms)
-// ============================================================
 
 // APICacheFormula represents a formula from the API cache.
 type APICacheFormula struct {
-	Name                string            `json:"name"`
-	FullName            string            `json:"full_name"`
-	Desc                string            `json:"desc"`
-	Homepage            string            `json:"homepage"`
-	License             string            `json:"license"`
-	Versions            APICacheVersions  `json:"versions"`
-	KegOnly             bool              `json:"keg_only"`
-	Pinned              bool              `json:"pinned"`
-	Outdated            bool              `json:"outdated"`
-	Deprecated          bool              `json:"deprecated"`
-	Disabled            bool              `json:"disabled"`
-	Dependencies        []string          `json:"dependencies"`
-	BuildDependencies   []string          `json:"build_dependencies"`
-	Caveats             *string           `json:"caveats"`
-	Service             *json.RawMessage  `json:"service"`
-	ConflictsWith       []string          `json:"conflicts_with"`
+	Name              string           `json:"name"`
+	FullName          string           `json:"full_name"`
+	Desc              string           `json:"desc"`
+	Homepage          string           `json:"homepage"`
+	License           string           `json:"license"`
+	Versions          APICacheVersions `json:"versions"`
+	KegOnly           bool             `json:"keg_only"`
+	Pinned            bool             `json:"pinned"`
+	Outdated          bool             `json:"outdated"`
+	Deprecated        bool             `json:"deprecated"`
+	Disabled          bool             `json:"disabled"`
+	Dependencies      []string         `json:"dependencies"`
+	BuildDependencies []string         `json:"build_dependencies"`
+	Caveats           *string          `json:"caveats"`
+	Service           *json.RawMessage `json:"service"`
+	ConflictsWith     []string         `json:"conflicts_with"`
 }
 
 // APICacheVersions holds version info from the API cache.
@@ -293,13 +275,13 @@ type APICacheCask struct {
 
 // FormulaCache holds the parsed formula API cache indexed by name.
 type FormulaCache struct {
-	All     []APICacheFormula          // all 8000+ formulae
-	ByName  map[string]*APICacheFormula // index by name
+	All    []APICacheFormula           // all 8000+ formulae
+	ByName map[string]*APICacheFormula // index by name
 }
 
 // CaskCache holds the parsed cask API cache indexed by token.
 type CaskCache struct {
-	All     []APICacheCask          // all 7000+ casks
+	All     []APICacheCask           // all 7000+ casks
 	ByToken map[string]*APICacheCask // index by token
 }
 
@@ -364,9 +346,7 @@ func (c *CacheReader) LoadCaskCache() (*CaskCache, error) {
 	return cc, nil
 }
 
-// ============================================================
 // Derived data — computed from cache (replaces brew deps/uses)
-// ============================================================
 
 // BuildReverseDeps builds a reverse dependency map from formula cache.
 // Returns: package name → list of installed packages that depend on it.

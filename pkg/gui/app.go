@@ -25,7 +25,7 @@ const (
 	OverlayHelp
 )
 
-// StartupStage tracks the two-phase loading progress (like lazygit).
+// StartupStage tracks the two-phase loading progress
 type StartupStage int
 
 const (
@@ -36,14 +36,14 @@ const (
 
 // App is the main bubbletea model.
 type App struct {
-	// Brew commands (like lazygit's git.Commands)
+	// Brew commands
 	cmds *brew.BrewCommands
 
 	// Terminal dimensions
 	width  int
 	height int
 
-	// Startup stage (like lazygit's INITIAL/COMPLETE pattern)
+	// Startup stage
 	stage StartupStage
 
 	// Panel state
@@ -63,10 +63,10 @@ type App struct {
 	tapNames         []string
 
 	// Data — Stage 2: enrichment from API cache + brew commands
-	formulaCache     *brew.FormulaCache         // all 8000+ formulae metadata
-	caskCache        *brew.CaskCache            // all 7000+ casks metadata
+	formulaCache     *brew.FormulaCache           // all 8000+ formulae metadata
+	caskCache        *brew.CaskCache              // all 7000+ casks metadata
 	receipts         map[string]*brew.ReceiptInfo // install receipts
-	reverseDeps      map[string][]string         // pkg → dependents
+	reverseDeps      map[string][]string          // pkg → dependents
 	outdatedFormulae map[string]bool
 	outdatedCasks    map[string]bool
 	leaves           map[string]bool
@@ -152,14 +152,14 @@ func NewApp() *App {
 }
 
 // Init implements tea.Model.
-// Stage 1: Fire 3 instant file-system reads in parallel (~0.02s total).
+// Stage 1: Fire 3 instant file-system reads in parallel
 // Spinner tick for loading animation.
 func (a *App) Init() tea.Cmd {
 	return tea.Batch(
-		loadFormulaeFromFS(a.cmds), // ~0.01s (read Cellar dir)
-		loadCasksFromFS(a.cmds),    // ~0.01s (read Caskroom dir)
-		loadTapsFromFS(a.cmds),     // ~0.001s (read Library/Taps)
-		spinnerTick(),              // animate loading
+		loadFormulaeFromFS(a.cmds),
+		loadCasksFromFS(a.cmds),
+		loadTapsFromFS(a.cmds),
+		spinnerTick(),
 	)
 }
 
@@ -216,9 +216,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// ============================================================
 // Panel & Cursor Navigation
-// ============================================================
 
 func (a *App) nextPanel() {
 	a.activePanel = PanelID((int(a.activePanel) + 1) % PanelCount)
@@ -230,6 +228,58 @@ func (a *App) prevPanel() {
 	a.focusArea = FocusSidePanel
 }
 
+// tabCount returns how many tabs the current panel has (0 means no tabs).
+// Panels without tabs (Status, Taps) return 0.
+func (a *App) tabCount() int {
+	switch a.activePanel {
+	case FormulaePanel:
+		return 3 // Installed, Outdated, Leaves
+	case CasksPanel:
+		return 2 // Installed, Outdated
+	case ServicesPanel:
+		return 3 // All, Running, Stopped
+	default:
+		return 0
+	}
+}
+
+// currentTab returns the current tab index for the active panel.
+func (a *App) currentTab() int {
+	switch a.activePanel {
+	case FormulaePanel:
+		return int(a.formulaeTab)
+	case CasksPanel:
+		return int(a.caskTab)
+	case ServicesPanel:
+		return int(a.serviceTab)
+	default:
+		return 0
+	}
+}
+
+// nextTab switches to the next tab within the current panel
+// Wraps around from last → first (ModuloWithWrap pattern).
+func (a *App) nextTab() (tea.Model, tea.Cmd) {
+	count := a.tabCount()
+	if count == 0 {
+		return a, nil
+	}
+	newTab := (a.currentTab() + 1) % count
+	return a.switchTab(newTab)
+}
+
+// prevTab switches to the previous tab within the current panel
+// Wraps around from first → last (ModuloWithWrap pattern).
+func (a *App) prevTab() (tea.Model, tea.Cmd) {
+	count := a.tabCount()
+	if count == 0 {
+		return a, nil
+	}
+	newTab := (a.currentTab() - 1 + count) % count
+	return a.switchTab(newTab)
+}
+
+// switchTab sets the active tab to the given index
 func (a *App) switchTab(tab int) (tea.Model, tea.Cmd) {
 	switch a.activePanel {
 	case FormulaePanel:
@@ -320,9 +370,7 @@ func (a *App) currentListLen() int {
 	}
 }
 
-// ============================================================
 // Selected item helpers
-// ============================================================
 
 func (a *App) selectedFormulaName() string {
 	items := a.getFilteredFormulaeNames()
@@ -340,9 +388,7 @@ func (a *App) selectedCaskName() string {
 	return ""
 }
 
-// ============================================================
 // Spinner & Logging helpers
-// ============================================================
 
 // spinnerChar returns the current spinner frame character.
 func (a *App) spinnerChar() string {

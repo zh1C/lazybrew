@@ -8,7 +8,6 @@ import (
 
 // ============================================================
 // Data filtering — work on name lists, not full objects
-// (like lazygit's gui/filtering.go)
 // ============================================================
 
 func (a *App) getFilteredFormulaeNames() []string {

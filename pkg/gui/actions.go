@@ -9,10 +9,7 @@ import (
 	"github.com/zh1C/lazybrew/pkg/commands/brew"
 )
 
-// ============================================================
 // User actions — brew operation methods
-// (like lazygit's gui/controllers/*.go)
-// ============================================================
 
 func (a *App) startSearch() (tea.Model, tea.Cmd) {
 	a.overlay = OverlaySearch

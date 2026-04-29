@@ -9,7 +9,6 @@ import (
 
 // ============================================================
 // Message handlers — all tea.Msg → state update logic
-// (like lazygit's gui/refresh.go + gui/state.go)
 // ============================================================
 
 // --- Stage 1 Handlers (instant from file system) ---

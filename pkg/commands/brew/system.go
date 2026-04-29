@@ -31,7 +31,6 @@ func (sc *SystemCommands) Autoremove(onOutput func(string)) CommandResult {
 }
 
 // BrewCommands aggregates all brew command groups.
-// Like lazygit's git.Commands, this is the single entry point for all data access.
 type BrewCommands struct {
 	Runner  *Runner
 	Formula *FormulaCommands

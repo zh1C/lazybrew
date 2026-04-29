@@ -58,7 +58,7 @@ type jsonRuntimeDep struct {
 	Revision int    `json:"revision"`
 }
 
-// ListNames returns just the installed formula names (extremely fast, ~0.03s).
+// ListNames returns just the installed formula names
 func (fc *FormulaCommands) ListNames() ([]string, error) {
 	result := fc.runner.Run("list", "--formula")
 	if result.Err != nil {
@@ -67,7 +67,7 @@ func (fc *FormulaCommands) ListNames() ([]string, error) {
 	return parseLines(result.Stdout), nil
 }
 
-// ListNamesWithVersions returns formula names with versions (~1s).
+// ListNamesWithVersions returns formula names with versions 
 func (fc *FormulaCommands) ListNamesWithVersions() (map[string]string, error) {
 	result := fc.runner.Run("list", "--formula", "--versions")
 	if result.Err != nil {
@@ -85,7 +85,7 @@ func (fc *FormulaCommands) ListNamesWithVersions() (map[string]string, error) {
 	return versionMap, nil
 }
 
-// ListOutdatedNames returns just the names of outdated formulae (~1.5s).
+// ListOutdatedNames returns just the names of outdated formulae
 func (fc *FormulaCommands) ListOutdatedNames() ([]string, error) {
 	result := fc.runner.Run("outdated", "--formula", "--quiet")
 	if result.Err != nil && result.ExitCode != 0 {

@@ -12,7 +12,6 @@ import (
 
 // ============================================================
 // Detail loading & rendering — cache-first, brew-fallback
-// (like lazygit's per-item info loading pattern)
 //
 // New architecture:
 //   - Formula/Cask details rendered INSTANTLY from API cache (0ms)

@@ -35,7 +35,7 @@ type jsonCask struct {
 	AutoUpdates bool     `json:"auto_updates"`
 }
 
-// ListNames returns just the installed cask names (extremely fast, ~0.03s).
+// ListNames returns just the installed cask names
 func (cc *CaskCommands) ListNames() ([]string, error) {
 	result := cc.runner.Run("list", "--cask")
 	if result.Err != nil {
@@ -52,7 +52,7 @@ func (cc *CaskCommands) ListNames() ([]string, error) {
 	return names, nil
 }
 
-// ListNamesWithVersions returns cask names with versions (~1s).
+// ListNamesWithVersions returns cask names with versions
 func (cc *CaskCommands) ListNamesWithVersions() (map[string]string, error) {
 	result := cc.runner.Run("list", "--cask", "--versions")
 	if result.Err != nil {
@@ -74,7 +74,7 @@ func (cc *CaskCommands) ListNamesWithVersions() (map[string]string, error) {
 	return versionMap, nil
 }
 
-// ListOutdatedNames returns just the names of outdated casks (~1.5s).
+// ListOutdatedNames returns just the names of outdated casks
 func (cc *CaskCommands) ListOutdatedNames() ([]string, error) {
 	result := cc.runner.Run("outdated", "--cask", "--quiet")
 	if result.Err != nil && result.ExitCode != 0 {

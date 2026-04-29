@@ -2,18 +2,18 @@ package gui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Color palette — matches lazygit's default theme
+// Color palette
 var (
-	// Active border: green bold (lazygit default ActiveBorderColor)
+	// Active border: green bold
 	activeBorderColor = lipgloss.Color("2") // ANSI green
 
-	// Inactive border: white/default (lazygit default InactiveBorderColor)
+	// Inactive border: white/default
 	inactiveBorderColor = lipgloss.Color("7") // ANSI white
 
-	// Options text: blue (lazygit default OptionsTextColor)
+	// Options text: blue
 	optionsColor = lipgloss.Color("4") // ANSI blue
 
-	// Selected line bg: blue (lazygit default SelectedLineBgColor)
+	// Selected line bg: blue
 	selectedBgColor = lipgloss.Color("4") // ANSI blue
 
 	// Cherry-pick / accent: cyan
@@ -37,12 +37,12 @@ var (
 
 // Panel styles
 var (
-	// Active panel border — green bold, like lazygit
+	// Active panel border
 	activePanelStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(activeBorderColor)
 
-	// Inactive panel border — default white, like lazygit
+	// Inactive panel border
 	inactivePanelStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(inactiveBorderColor)
@@ -56,7 +56,7 @@ var (
 	inactiveTitleStyle = lipgloss.NewStyle().
 				Foreground(defaultFgColor)
 
-	// Selected item in list — blue background, like lazygit
+	// Selected item in list — blue background
 	selectedItemStyle = lipgloss.NewStyle().
 				Background(selectedBgColor).
 				Bold(true)
@@ -69,11 +69,11 @@ var (
 	dimItemStyle = lipgloss.NewStyle().
 			Foreground(dimColor)
 
-	// Status bar style — options in blue, like lazygit
+	// Status bar style — options in blue
 	statusBarStyle = lipgloss.NewStyle().
 			Foreground(optionsColor)
 
-	// Keybinding style — blue like lazygit OptionsTextColor
+	// Keybinding style — blue
 	keyStyle = lipgloss.NewStyle().
 			Foreground(optionsColor).
 			Bold(true)
@@ -97,7 +97,7 @@ var (
 	stoppedStyle = lipgloss.NewStyle().
 			Foreground(errorColor)
 
-	// Tab styles — lazygit uses active border color for current tab, dim for others
+	// Tab styles
 	activeTabStyle = lipgloss.NewStyle().
 			Foreground(activeBorderColor).
 			Bold(true)

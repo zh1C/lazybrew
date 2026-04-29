@@ -8,10 +8,7 @@ import (
 	"github.com/zh1C/lazybrew/pkg/commands/brew"
 )
 
-// ============================================================
-// Stage 1: File system reads (each ~0.01s, parallel = ~0.02s)
-// Like lazygit's instant git-status via file system.
-// ============================================================
+// Stage 1: File system reads
 
 func loadFormulaeFromFS(cmds *brew.BrewCommands) tea.Cmd {
 	return func() tea.Msg {
@@ -55,9 +52,7 @@ func loadTapsFromFS(cmds *brew.BrewCommands) tea.Cmd {
 	}
 }
 
-// ============================================================
-// Stage 2: API cache + brew commands (parallel, ~0.2s cache + ~1.5s brew)
-// ============================================================
+// Stage 2: API cache + brew commands
 
 // loadAPICache loads formula/cask metadata from local API cache files.
 // This provides desc, homepage, license, deps for all 8000+ formulae in ~0.2s.
@@ -108,9 +103,7 @@ func loadServices(cmds *brew.BrewCommands) tea.Cmd {
 	}
 }
 
-// ============================================================
 // On-demand detail loading — fallback for packages not in cache
-// ============================================================
 
 func loadFormulaInfo(cmds *brew.BrewCommands, name string) tea.Cmd {
 	return func() tea.Msg {
@@ -136,9 +129,7 @@ func loadCaskInfo(cmds *brew.BrewCommands, name string) tea.Cmd {
 	}
 }
 
-// ============================================================
 // Action commands
-// ============================================================
 
 func runBrewCommand(cmdName string, cmdFunc func(func(string)) brew.CommandResult) tea.Cmd {
 	return func() tea.Msg {
@@ -156,7 +147,6 @@ func runBrewCommand(cmdName string, cmdFunc func(func(string)) brew.CommandResul
 }
 
 // searchFromCache searches the API cache for matching formula/cask names.
-// This is ~200x faster than `brew search` (0.01s vs 2.2s).
 func searchFromCache(app *App, query string) tea.Cmd {
 	return func() tea.Msg {
 		lower := strings.ToLower(query)

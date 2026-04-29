@@ -34,7 +34,7 @@ func PanelName(id PanelID) string {
 	}
 }
 
-// PanelIndex returns the jump-key prefix like lazygit's [1], [2], etc.
+// PanelIndex returns the jump-key prefix [1], [2], etc.
 func PanelIndex(id PanelID) string {
 	return fmt.Sprintf("[%d]", int(id)+1)
 }
