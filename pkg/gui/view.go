@@ -359,9 +359,7 @@ func (a *App) renderDetailPanel(width, height int) string {
 
 	content := a.detailInfo
 	if content == "" {
-		if a.detailLoading {
-			content = dimItemStyle.Render(" " + a.spinnerChar() + " Loading details...")
-		} else if a.stage == StageLoading {
+		if a.stage == StageLoading {
 			content = dimItemStyle.Render(" " + a.spinnerChar() + " Loading...")
 		} else {
 			content = dimItemStyle.Render(" Select an item to view details")

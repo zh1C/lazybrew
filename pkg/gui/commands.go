@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -8,48 +9,89 @@ import (
 )
 
 // ============================================================
-// Stage 1: Instant name lists (each ~0.03s, parallel = ~0.06s)
+// Stage 1: File system reads (each ~0.01s, parallel = ~0.02s)
+// Like lazygit's instant git-status via file system.
 // ============================================================
 
-func loadFormulaeNames(cmds *brew.BrewCommands) tea.Cmd {
+func loadFormulaeFromFS(cmds *brew.BrewCommands) tea.Cmd {
 	return func() tea.Msg {
-		names, err := cmds.Formula.ListNames()
-		return FormulaeNamesMsg{Names: names, Err: err}
+		names, err := cmds.Cache.InstalledFormulaNames()
+		if err != nil {
+			// Fallback to brew command
+			names, err = cmds.Formula.ListNames()
+			if err != nil {
+				return FormulaeNamesMsg{Err: err}
+			}
+		}
+		versions, _ := cmds.Cache.InstalledFormulaVersions()
+		return FormulaeNamesMsg{Names: names, Versions: versions}
 	}
 }
 
-func loadCaskNames(cmds *brew.BrewCommands) tea.Cmd {
+func loadCasksFromFS(cmds *brew.BrewCommands) tea.Cmd {
 	return func() tea.Msg {
-		names, err := cmds.Cask.ListNames()
-		return CaskNamesMsg{Names: names, Err: err}
+		names, err := cmds.Cache.InstalledCaskNames()
+		if err != nil {
+			names, err = cmds.Cask.ListNames()
+			if err != nil {
+				return CaskNamesMsg{Err: err}
+			}
+		}
+		versions, _ := cmds.Cache.InstalledCaskVersions()
+		return CaskNamesMsg{Names: names, Versions: versions}
 	}
 }
 
-func loadTapNames(cmds *brew.BrewCommands) tea.Cmd {
+func loadTapsFromFS(cmds *brew.BrewCommands) tea.Cmd {
 	return func() tea.Msg {
-		names, err := cmds.Tap.ListNames()
-		return TapNamesMsg{Names: names, Err: err}
+		names, err := cmds.Cache.TapNames()
+		if err != nil {
+			names, err = cmds.Tap.ListNames()
+			if err != nil {
+				return TapNamesMsg{Err: err}
+			}
+		}
+		return TapNamesMsg{Names: names}
 	}
 }
 
 // ============================================================
-// Stage 2: Background enrichment (each ~1-2s, parallel)
+// Stage 2: API cache + brew commands (parallel, ~0.2s cache + ~1.5s brew)
 // ============================================================
 
-func loadFormulaeVersions(cmds *brew.BrewCommands) tea.Cmd {
+// loadAPICache loads formula/cask metadata from local API cache files.
+// This provides desc, homepage, license, deps for all 8000+ formulae in ~0.2s.
+func loadAPICache(cmds *brew.BrewCommands, installedNames []string) tea.Cmd {
 	return func() tea.Msg {
-		versions, err := cmds.Formula.ListNamesWithVersions()
-		return FormulaeVersionsMsg{Versions: versions, Err: err}
+		fc, fcErr := cmds.Cache.LoadFormulaCache()
+		cc, ccErr := cmds.Cache.LoadCaskCache()
+		receipts, _ := cmds.Cache.AllReceipts()
+
+		if fcErr != nil && ccErr != nil {
+			return CacheLoadedMsg{Err: fcErr}
+		}
+
+		var reverseDeps map[string][]string
+		var leaves map[string]bool
+
+		if fc != nil && len(installedNames) > 0 {
+			reverseDeps = brew.BuildReverseDeps(fc, installedNames)
+			if receipts != nil {
+				leaves = brew.ComputeLeaves(receipts, reverseDeps)
+			}
+		}
+
+		return CacheLoadedMsg{
+			FormulaCache: fc,
+			CaskCache:    cc,
+			Receipts:     receipts,
+			ReverseDeps:  reverseDeps,
+			Leaves:       leaves,
+		}
 	}
 }
 
-func loadCaskVersions(cmds *brew.BrewCommands) tea.Cmd {
-	return func() tea.Msg {
-		versions, err := cmds.Cask.ListNamesWithVersions()
-		return CaskVersionsMsg{Versions: versions, Err: err}
-	}
-}
-
+// loadOutdatedNames still uses brew command (needs precise version comparison).
 func loadOutdatedNames(cmds *brew.BrewCommands) tea.Cmd {
 	return func() tea.Msg {
 		formulae, _ := cmds.Formula.ListOutdatedNames()
@@ -58,13 +100,7 @@ func loadOutdatedNames(cmds *brew.BrewCommands) tea.Cmd {
 	}
 }
 
-func loadLeaves(cmds *brew.BrewCommands) tea.Cmd {
-	return func() tea.Msg {
-		leaves, err := cmds.Formula.ListLeaves()
-		return LeavesLoadedMsg{Leaves: leaves, Err: err}
-	}
-}
-
+// loadServices still uses brew command (needs launchctl interaction).
 func loadServices(cmds *brew.BrewCommands) tea.Cmd {
 	return func() tea.Msg {
 		services, err := cmds.Service.List()
@@ -72,15 +108,8 @@ func loadServices(cmds *brew.BrewCommands) tea.Cmd {
 	}
 }
 
-func loadTapsDetail(cmds *brew.BrewCommands) tea.Cmd {
-	return func() tea.Msg {
-		taps, err := cmds.Tap.List()
-		return TapsDetailMsg{Taps: taps, Err: err}
-	}
-}
-
 // ============================================================
-// On-demand detail loading (triggered by user cursor movement)
+// On-demand detail loading — fallback for packages not in cache
 // ============================================================
 
 func loadFormulaInfo(cmds *brew.BrewCommands, name string) tea.Cmd {
@@ -126,6 +155,51 @@ func runBrewCommand(cmdName string, cmdFunc func(func(string)) brew.CommandResul
 	}
 }
 
+// searchFromCache searches the API cache for matching formula/cask names.
+// This is ~200x faster than `brew search` (0.01s vs 2.2s).
+func searchFromCache(app *App, query string) tea.Cmd {
+	return func() tea.Msg {
+		lower := strings.ToLower(query)
+		var formulae, casks []string
+
+		// Search formula cache
+		if app.formulaCache != nil {
+			for _, f := range app.formulaCache.All {
+				if strings.Contains(strings.ToLower(f.Name), lower) ||
+					strings.Contains(strings.ToLower(f.Desc), lower) {
+					formulae = append(formulae, f.Name)
+				}
+			}
+		}
+
+		// Search cask cache
+		if app.caskCache != nil {
+			for _, c := range app.caskCache.All {
+				if strings.Contains(strings.ToLower(c.Token), lower) ||
+					strings.Contains(strings.ToLower(c.Desc), lower) {
+					casks = append(casks, c.Token)
+				}
+			}
+		}
+
+		// Limit results
+		maxResults := 50
+		if len(formulae) > maxResults {
+			formulae = formulae[:maxResults]
+		}
+		if len(casks) > maxResults {
+			casks = casks[:maxResults]
+		}
+
+		return SearchResultMsg{
+			Query:    query,
+			Formulae: formulae,
+			Casks:    casks,
+		}
+	}
+}
+
+// searchPackages falls back to brew search when cache is not available.
 func searchPackages(cmds *brew.BrewCommands, query string) tea.Cmd {
 	return func() tea.Msg {
 		formulae, fErr := cmds.Formula.Search(query)

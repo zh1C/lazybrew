@@ -150,6 +150,11 @@ func (a *App) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if a.searchInput.Value() != "" && len(a.searchResults) == 0 {
 			query := a.searchInput.Value()
+			// Use cache search if available (instant), fallback to brew search
+			if a.formulaCache != nil || a.caskCache != nil {
+				a.addLog(cmdLogPrefix.Render("$") + " search " + query + " (cache)")
+				return a, searchFromCache(a, query)
+			}
 			a.addLog(cmdLogPrefix.Render("$") + " brew search " + query)
 			return a, searchPackages(a.cmds, query)
 		}

@@ -31,13 +31,15 @@ func (sc *SystemCommands) Autoremove(onOutput func(string)) CommandResult {
 }
 
 // BrewCommands aggregates all brew command groups.
+// Like lazygit's git.Commands, this is the single entry point for all data access.
 type BrewCommands struct {
-	Runner   *Runner
-	Formula  *FormulaCommands
-	Cask     *CaskCommands
-	Service  *ServiceCommands
-	Tap      *TapCommands
-	System   *SystemCommands
+	Runner  *Runner
+	Formula *FormulaCommands
+	Cask    *CaskCommands
+	Service *ServiceCommands
+	Tap     *TapCommands
+	System  *SystemCommands
+	Cache   *CacheReader // Local file system + API cache (fast path)
 }
 
 // NewBrewCommands creates a fully initialized BrewCommands.
@@ -50,5 +52,6 @@ func NewBrewCommands() *BrewCommands {
 		Service: NewServiceCommands(runner),
 		Tap:     NewTapCommands(runner),
 		System:  NewSystemCommands(runner),
+		Cache:   NewCacheReader(),
 	}
 }

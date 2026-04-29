@@ -12,7 +12,7 @@ import (
 // (like lazygit's gui/refresh.go + gui/state.go)
 // ============================================================
 
-// --- Stage 1 Handlers (instant name lists) ---
+// --- Stage 1 Handlers (instant from file system) ---
 
 func (a *App) handleFormulaeNames(msg FormulaeNamesMsg) (tea.Model, tea.Cmd) {
 	a.formulaeLoading = false
@@ -21,6 +21,9 @@ func (a *App) handleFormulaeNames(msg FormulaeNamesMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 	a.formulaeNames = msg.Names
+	if msg.Versions != nil {
+		a.formulaeVersions = msg.Versions
+	}
 	a.errMsg = ""
 
 	// Check if Stage 1 is complete → start Stage 2
@@ -34,6 +37,9 @@ func (a *App) handleCaskNames(msg CaskNamesMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 	a.caskNames = msg.Names
+	if msg.Versions != nil {
+		a.caskVersions = msg.Versions
+	}
 	return a, a.maybeStartStage2()
 }
 
@@ -47,7 +53,10 @@ func (a *App) handleTapNames(msg TapNamesMsg) (tea.Model, tea.Cmd) {
 }
 
 // maybeStartStage2 checks if all Stage 1 data has arrived.
-// If so, transitions to Stage 2 and fires background enrichment commands.
+// If so, transitions to Stage 2 and fires parallel enrichment:
+//   - API cache loading (~0.2s) — formula/cask metadata, deps, leaves
+//   - brew outdated (~1.5s) — needs precise version comparison
+//   - brew services (~1.5s) — needs launchctl interaction
 func (a *App) maybeStartStage2() tea.Cmd {
 	// Still waiting for some Stage 1 data
 	if a.formulaeLoading || a.casksLoading || a.tapsLoading {
@@ -56,38 +65,45 @@ func (a *App) maybeStartStage2() tea.Cmd {
 
 	// Stage 1 complete → start Stage 2
 	a.stage = StageEnriching
+	a.cacheLoading = true
 	a.servicesLoading = true
+	a.stage2CacheDone = false
+	a.stage2OutdatedDone = false
+	a.stage2ServicesDone = false
 
 	return tea.Batch(
-		loadFormulaeVersions(a.cmds), // ~1s
-		loadCaskVersions(a.cmds),     // ~1s
-		loadOutdatedNames(a.cmds),    // ~1.5s
-		loadLeaves(a.cmds),           // ~1.7s
-		loadServices(a.cmds),         // ~1.5s
-		loadTapsDetail(a.cmds),       // ~0.5s
-		spinnerTick(),                // keep spinner alive
+		loadAPICache(a.cmds, a.formulaeNames), // ~0.2s (file system)
+		loadOutdatedNames(a.cmds),             // ~1.5s (brew command, kept)
+		loadServices(a.cmds),                  // ~1.5s (brew command, kept)
+		spinnerTick(),                         // keep spinner alive
 	)
 }
 
-// --- Stage 2 Handlers (background enrichment) ---
+// --- Stage 2 Handlers ---
 
-func (a *App) handleFormulaeVersions(msg FormulaeVersionsMsg) (tea.Model, tea.Cmd) {
-	if msg.Err == nil {
-		a.formulaeVersions = msg.Versions
-	}
-	a.checkStageComplete()
-	return a, nil
-}
+func (a *App) handleCacheLoaded(msg CacheLoadedMsg) (tea.Model, tea.Cmd) {
+	a.cacheLoading = false
+	a.stage2CacheDone = true
 
-func (a *App) handleCaskVersions(msg CaskVersionsMsg) (tea.Model, tea.Cmd) {
-	if msg.Err == nil {
-		a.caskVersions = msg.Versions
+	if msg.Err != nil {
+		// Cache failed — not critical, detail will fallback to brew commands
+		a.addLog(cmdLogError.Render("!") + " Cache load failed, using brew fallback")
+	} else {
+		a.formulaCache = msg.FormulaCache
+		a.caskCache = msg.CaskCache
+		a.receipts = msg.Receipts
+		a.reverseDeps = msg.ReverseDeps
+		if msg.Leaves != nil {
+			a.leaves = msg.Leaves
+		}
 	}
+
 	a.checkStageComplete()
 	return a, nil
 }
 
 func (a *App) handleOutdatedNames(msg OutdatedNamesMsg) (tea.Model, tea.Cmd) {
+	a.stage2OutdatedDone = true
 	if msg.Err == nil {
 		a.outdatedFormulae = make(map[string]bool, len(msg.Formulae))
 		for _, name := range msg.Formulae {
@@ -102,29 +118,11 @@ func (a *App) handleOutdatedNames(msg OutdatedNamesMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) handleLeaves(msg LeavesLoadedMsg) (tea.Model, tea.Cmd) {
-	if msg.Err == nil {
-		a.leaves = make(map[string]bool, len(msg.Leaves))
-		for _, name := range msg.Leaves {
-			a.leaves[name] = true
-		}
-	}
-	a.checkStageComplete()
-	return a, nil
-}
-
 func (a *App) handleServices(msg ServicesLoadedMsg) (tea.Model, tea.Cmd) {
 	a.servicesLoading = false
+	a.stage2ServicesDone = true
 	if msg.Err == nil {
 		a.services = msg.Services
-	}
-	a.checkStageComplete()
-	return a, nil
-}
-
-func (a *App) handleTapsDetail(msg TapsDetailMsg) (tea.Model, tea.Cmd) {
-	if msg.Err == nil {
-		a.taps = msg.Taps
 	}
 	a.checkStageComplete()
 	return a, nil
@@ -135,16 +133,14 @@ func (a *App) checkStageComplete() {
 	if a.stage != StageEnriching {
 		return
 	}
-	// Check if all enrichment data has arrived
-	if len(a.formulaeVersions) > 0 && len(a.caskVersions) > 0 && !a.servicesLoading {
+	if a.stage2CacheDone && a.stage2OutdatedDone && a.stage2ServicesDone {
 		a.stage = StageComplete
 	}
 }
 
-// --- On-demand detail handlers ---
+// --- On-demand detail handlers (fallback when cache misses) ---
 
 func (a *App) handleFormulaInfo(msg FormulaInfoMsg) (tea.Model, tea.Cmd) {
-	a.detailLoading = false
 	if msg.Err != nil {
 		a.detailInfo = fmt.Sprintf("Error loading %s: %v", msg.Name, msg.Err)
 		return a, nil
@@ -152,13 +148,10 @@ func (a *App) handleFormulaInfo(msg FormulaInfoMsg) (tea.Model, tea.Cmd) {
 	rendered := a.renderFormulaDetail(msg.Formula, msg.Deps, msg.Uses)
 	a.detailInfo = rendered
 	a.detailScroll = 0
-	// Cache it
-	a.detailCache["formula:"+msg.Name] = rendered
 	return a, nil
 }
 
 func (a *App) handleCaskInfo(msg CaskInfoMsg) (tea.Model, tea.Cmd) {
-	a.detailLoading = false
 	if msg.Err != nil {
 		a.detailInfo = fmt.Sprintf("Error loading %s: %v", msg.Name, msg.Err)
 		return a, nil
@@ -166,7 +159,6 @@ func (a *App) handleCaskInfo(msg CaskInfoMsg) (tea.Model, tea.Cmd) {
 	rendered := a.renderCaskDetail(msg.Cask)
 	a.detailInfo = rendered
 	a.detailScroll = 0
-	a.detailCache["cask:"+msg.Name] = rendered
 	return a, nil
 }
 
@@ -174,13 +166,13 @@ func (a *App) handleCaskInfo(msg CaskInfoMsg) (tea.Model, tea.Cmd) {
 
 func (a *App) handleCommandDone(msg CommandDoneMsg) (tea.Model, tea.Cmd) {
 	if msg.Success {
-		a.addLog(cmdLogSuccess.Render("✓") + " " + msg.Command + " completed")
+		a.addLog(cmdLogSuccess.Render("OK") + " " + msg.Command + " completed")
 	} else {
 		errStr := ""
 		if msg.Err != nil {
 			errStr = ": " + msg.Err.Error()
 		}
-		a.addLog(cmdLogError.Render("✗") + " " + msg.Command + " failed" + errStr)
+		a.addLog(cmdLogError.Render("ERR") + " " + msg.Command + " failed" + errStr)
 	}
 	if msg.Output != "" {
 		for _, line := range strings.Split(strings.TrimSpace(msg.Output), "\n") {
@@ -189,8 +181,7 @@ func (a *App) handleCommandDone(msg CommandDoneMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	// Refresh data after command — clear cache
-	a.detailCache = make(map[string]string)
+	// Refresh data after command
 	return a, func() tea.Msg { return RefreshMsg{} }
 }
 
@@ -221,10 +212,14 @@ func (a *App) handleRefresh() (tea.Model, tea.Cmd) {
 	a.outdatedFormulae = make(map[string]bool)
 	a.outdatedCasks = make(map[string]bool)
 	a.leaves = make(map[string]bool)
+	a.formulaCache = nil
+	a.caskCache = nil
+	a.receipts = nil
+	a.reverseDeps = nil
 	return a, tea.Batch(
-		loadFormulaeNames(a.cmds),
-		loadCaskNames(a.cmds),
-		loadTapNames(a.cmds),
+		loadFormulaeFromFS(a.cmds),
+		loadCasksFromFS(a.cmds),
+		loadTapsFromFS(a.cmds),
 		spinnerTick(),
 	)
 }

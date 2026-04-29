@@ -29,14 +29,14 @@ const (
 type StartupStage int
 
 const (
-	StageLoading   StartupStage = iota // Stage 1: loading name lists
-	StageEnriching                     // Stage 2: enriching with versions/outdated/leaves
+	StageLoading   StartupStage = iota // Stage 1: loading from file system
+	StageEnriching                     // Stage 2: loading API cache + brew commands
 	StageComplete                      // All data loaded
 )
 
 // App is the main bubbletea model.
 type App struct {
-	// Brew commands
+	// Brew commands (like lazygit's git.Commands)
 	cmds *brew.BrewCommands
 
 	// Terminal dimensions
@@ -55,17 +55,21 @@ type App struct {
 	caskTab     TabID
 	serviceTab  TabID
 
-	// Data — Stage 1: just names (instant)
-	formulaeNames []string
-	caskNames     []string
-	tapNames      []string
+	// Data — Stage 1: names + versions from file system (instant)
+	formulaeNames    []string
+	formulaeVersions map[string]string
+	caskNames        []string
+	caskVersions     map[string]string
+	tapNames         []string
 
-	// Data — Stage 2: enrichment (background)
-	formulaeVersions map[string]string // name → version
-	caskVersions     map[string]string // name → version
-	outdatedFormulae map[string]bool   // name set
-	outdatedCasks    map[string]bool   // name set
-	leaves           map[string]bool   // name set
+	// Data — Stage 2: enrichment from API cache + brew commands
+	formulaCache     *brew.FormulaCache         // all 8000+ formulae metadata
+	caskCache        *brew.CaskCache            // all 7000+ casks metadata
+	receipts         map[string]*brew.ReceiptInfo // install receipts
+	reverseDeps      map[string][]string         // pkg → dependents
+	outdatedFormulae map[string]bool
+	outdatedCasks    map[string]bool
+	leaves           map[string]bool
 	services         []models.Service
 	taps             []models.Tap
 
@@ -74,6 +78,12 @@ type App struct {
 	casksLoading    bool
 	tapsLoading     bool
 	servicesLoading bool
+	cacheLoading    bool // API cache loading in progress
+
+	// Stage 2 completion tracking
+	stage2CacheDone    bool
+	stage2OutdatedDone bool
+	stage2ServicesDone bool
 
 	// List cursors
 	formulaeCursor int
@@ -82,11 +92,9 @@ type App struct {
 	servicesCursor int
 	searchCursor   int
 
-	// Detail panel — on-demand loading with cache
-	detailInfo    string
-	detailScroll  int
-	detailLoading bool
-	detailCache   map[string]string // "formula:name" or "cask:name" → rendered detail
+	// Detail panel — rendered from cache data (instant)
+	detailInfo   string
+	detailScroll int
 
 	// Command log
 	commandLog  []string
@@ -135,23 +143,23 @@ func NewApp() *App {
 		outdatedFormulae: make(map[string]bool),
 		outdatedCasks:    make(map[string]bool),
 		leaves:           make(map[string]bool),
-		detailCache:      make(map[string]string),
 		formulaeLoading:  true,
 		casksLoading:     true,
 		tapsLoading:      true,
 		servicesLoading:  true,
+		cacheLoading:     true,
 	}
 }
 
 // Init implements tea.Model.
-// Stage 1: Fire 3 instant name-list commands in parallel (~0.06s total).
+// Stage 1: Fire 3 instant file-system reads in parallel (~0.02s total).
 // Spinner tick for loading animation.
 func (a *App) Init() tea.Cmd {
 	return tea.Batch(
-		loadFormulaeNames(a.cmds), // ~0.03s
-		loadCaskNames(a.cmds),     // ~0.03s
-		loadTapNames(a.cmds),      // ~0.06s
-		spinnerTick(),             // animate loading
+		loadFormulaeFromFS(a.cmds), // ~0.01s (read Cellar dir)
+		loadCasksFromFS(a.cmds),    // ~0.01s (read Caskroom dir)
+		loadTapsFromFS(a.cmds),     // ~0.001s (read Library/Taps)
+		spinnerTick(),              // animate loading
 	)
 }
 
@@ -166,7 +174,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return a.handleKeyPress(msg)
 
-	// --- Stage 1 handlers (instant) ---
+	// --- Stage 1 handlers (instant from file system) ---
 	case FormulaeNamesMsg:
 		return a.handleFormulaeNames(msg)
 	case CaskNamesMsg:
@@ -174,21 +182,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case TapNamesMsg:
 		return a.handleTapNames(msg)
 
-	// --- Stage 2 handlers (background) ---
-	case FormulaeVersionsMsg:
-		return a.handleFormulaeVersions(msg)
-	case CaskVersionsMsg:
-		return a.handleCaskVersions(msg)
+	// --- Stage 2 handlers (API cache + brew commands) ---
+	case CacheLoadedMsg:
+		return a.handleCacheLoaded(msg)
 	case OutdatedNamesMsg:
 		return a.handleOutdatedNames(msg)
-	case LeavesLoadedMsg:
-		return a.handleLeaves(msg)
 	case ServicesLoadedMsg:
 		return a.handleServices(msg)
-	case TapsDetailMsg:
-		return a.handleTapsDetail(msg)
 
-	// --- On-demand detail ---
+	// --- On-demand detail fallback ---
 	case FormulaInfoMsg:
 		return a.handleFormulaInfo(msg)
 	case CaskInfoMsg:

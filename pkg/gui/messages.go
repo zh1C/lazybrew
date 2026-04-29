@@ -1,23 +1,26 @@
 package gui
 
 import (
+	"github.com/zh1C/lazybrew/pkg/commands/brew"
 	"github.com/zh1C/lazybrew/pkg/commands/models"
 )
 
 // ============================================================
-// Stage 1 Messages — instant name lists (~0.03s each)
+// Stage 1 Messages — instant file system reads (~0.01s each)
 // ============================================================
 
 // FormulaeNamesMsg arrives when formula names are loaded (Stage 1).
 type FormulaeNamesMsg struct {
-	Names []string
-	Err   error
+	Names    []string
+	Versions map[string]string
+	Err      error
 }
 
 // CaskNamesMsg arrives when cask names are loaded (Stage 1).
 type CaskNamesMsg struct {
-	Names []string
-	Err   error
+	Names    []string
+	Versions map[string]string
+	Err      error
 }
 
 // TapNamesMsg arrives when tap names are loaded (Stage 1).
@@ -27,51 +30,39 @@ type TapNamesMsg struct {
 }
 
 // ============================================================
-// Stage 2 Messages — background enrichment (~1-2s each)
+// Stage 2 Messages — API cache + background brew commands
 // ============================================================
 
-// FormulaeVersionsMsg arrives when formula name→version map is loaded.
-type FormulaeVersionsMsg struct {
-	Versions map[string]string
-	Err      error
+// CacheLoadedMsg arrives when the API cache has been fully parsed.
+// Contains formula/cask metadata, reverse deps, leaves, receipts.
+type CacheLoadedMsg struct {
+	FormulaCache *brew.FormulaCache
+	CaskCache    *brew.CaskCache
+	Receipts     map[string]*brew.ReceiptInfo
+	ReverseDeps  map[string][]string
+	Leaves       map[string]bool
+	Err          error
 }
 
-// CaskVersionsMsg arrives when cask name→version map is loaded.
-type CaskVersionsMsg struct {
-	Versions map[string]string
-	Err      error
-}
-
-// OutdatedNamesMsg arrives when outdated package names are loaded.
+// OutdatedNamesMsg arrives when outdated package names are loaded (brew command).
 type OutdatedNamesMsg struct {
 	Formulae []string
 	Casks    []string
 	Err      error
 }
 
-// LeavesLoadedMsg arrives when leaf formula names are loaded.
-type LeavesLoadedMsg struct {
-	Leaves []string
-	Err    error
-}
-
-// ServicesLoadedMsg arrives when services list is loaded.
+// ServicesLoadedMsg arrives when services list is loaded (brew command).
 type ServicesLoadedMsg struct {
 	Services []models.Service
 	Err      error
 }
 
-// TapsDetailMsg arrives when detailed tap info is loaded.
-type TapsDetailMsg struct {
-	Taps []models.Tap
-	Err  error
-}
-
 // ============================================================
-// On-demand detail messages (triggered by user selection)
+// On-demand detail messages (no longer needed for formula/cask
+// since we have cache, but kept for fallback)
 // ============================================================
 
-// FormulaInfoMsg arrives when a single formula's detail is loaded.
+// FormulaInfoMsg arrives when a single formula's detail is loaded via brew.
 type FormulaInfoMsg struct {
 	Name    string
 	Formula *models.Formula
@@ -80,7 +71,7 @@ type FormulaInfoMsg struct {
 	Err     error
 }
 
-// CaskInfoMsg arrives when a single cask's detail is loaded.
+// CaskInfoMsg arrives when a single cask's detail is loaded via brew.
 type CaskInfoMsg struct {
 	Name string
 	Cask *models.Cask
